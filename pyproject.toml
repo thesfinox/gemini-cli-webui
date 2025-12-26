@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemini-webui"
+authors = [
+    { name = "Riccardo Finotello", email = "riccardo.finotello@gmail.com" },
+]
+description = "A simple Streamlit-powered web inteface for gemini-cli."
+maintainers = [
+    { name = "Riccardo Finotello", email = "riccardo.finotello@cea.fr" },
+]
+readme = "README.md"
+requires-python = ">=3.13"
+keywords = ["artificial intelligence", "LLM", "gemini", "CLI", "web interface"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Topic :: Office/Business",
+]
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = ["streamlit>=1.52.2", "streamlit-paste-button>=0.1.2"]
+
+[project.scripts]
+gemini-webui = "gwebui.main:cli"
+
+[dependency-groups]
+build = ["pre-commit>=4.5.1"]
+docs = ["sphinx>=9.0.4"]
+test = ["pytest>=9.0.2", "pytest-cov>=7.0.0", "pytest-mock>=3.15.1"]
+lint = ["ruff>=0.9.9"]
+
+[project.urls]
+Homepage = "https://github.com/thesfinox/gemini-cli-webui"
+Documentation = "https://github.com/thesfinox/gemini-cli-webui"
+Repository = "https://github.com/thesfinox/gemini-cli-webui"
+Issues = "https://github.com/thesfinox/gemini-cli-webui/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "gwebui.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+    ".venv",
+]
+
+line-length = 80
+indent-width = 4
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
