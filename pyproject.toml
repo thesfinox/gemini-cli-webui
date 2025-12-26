@@ -29,10 +29,9 @@ dependencies = ["streamlit>=1.52.2", "streamlit-paste-button>=0.1.2"]
 gemini-webui = "gwebui.main:cli"
 
 [dependency-groups]
-build = ["pre-commit>=4.5.1"]
+build = ["pre-commit>=4.5.1", "ruff>=0.9.9"]
 docs = ["sphinx>=9.0.4"]
 test = ["pytest>=9.0.2", "pytest-cov>=7.0.0", "pytest-mock>=3.15.1"]
-lint = ["ruff>=0.9.9"]
 
 [project.urls]
 Homepage = "https://github.com/thesfinox/gemini-cli-webui"

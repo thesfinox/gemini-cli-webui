@@ -244,8 +244,7 @@ def test_history_update_existing(
     # Verify history was updated, not duplicated
     assert len(at.session_state.history) == 1
     assert (
-        at.session_state.history[0]["messages"][-1]["content"]
-        == "new response"
+        at.session_state.history[0]["messages"][-1]["content"] == "new response"
     )
 
 
@@ -352,9 +351,7 @@ def test_history_loading(app_path: Path, temp_cwd: Path) -> None:
     assert at.session_state["messages"][0]["content"] == "old msg"
 
 
-def test_model_name_display(
-    app_path: Path, mock_subprocess: MagicMock
-) -> None:
+def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
     """Test that the model name is correctly displayed."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
