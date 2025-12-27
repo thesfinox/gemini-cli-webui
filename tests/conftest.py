@@ -29,8 +29,14 @@ def mock_gemini_response() -> dict[str, Any]:
         "session_id": "mock-session-id",
         "stats": {
             "models": {
-                "gemini-1.5-pro": {"api": {"totalRequests": 10}},
-                "gemini-1.5-flash": {"api": {"totalRequests": 5}},
+                "gemini-1.5-pro": {
+                    "api": {"totalRequests": 10},
+                    "tokens": {"total": 1000},
+                },
+                "gemini-1.5-flash": {
+                    "api": {"totalRequests": 5},
+                    "tokens": {"total": 500},
+                },
             }
         },
     }

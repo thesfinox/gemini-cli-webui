@@ -32,26 +32,115 @@ from streamlit_paste_button import PasteResult, paste_image_button
 
 # List of allowed MCP tools to avoid confirmation prompts
 ALLOWED_TOOLS: list[str] = [
-    "playwright",
-    "filesystem",
-    "memory",
-    "brave-search",
-    "context7",
-    "pandoc",
-    "open-pdf",
-    "git",
-    "github",
-    "zotero",
-    "arxiv-latex-mcp",
-    "general-python",
-    "symbolic-math",
-    "data-wrangler",
+    "add_issue_comment",
+    "add_observations",
+    "brave_local_search",
+    "brave_web_search",
+    "browser_click",
+    "browser_close",
+    "browser_console_messages",
+    "browser_drag",
+    "browser_evaluate",
+    "browser_file_upload",
+    "browser_fill_form",
+    "browser_handle_dialog",
+    "browser_hover",
+    "browser_install",
+    "browser_navigate",
+    "browser_navigate_back",
+    "browser_network_requests",
+    "browser_press_key",
+    "browser_resize",
+    "browser_run_code",
+    "browser_select_option",
+    "browser_snapshot",
+    "browser_tabs",
+    "browser_take_screenshot",
+    "browser_type",
+    "browser_wait_for",
+    "convert-contents",
+    "create_branch",
+    "create_directory",
+    "create_entities",
+    "create_issue",
+    "create_or_update_file",
+    "create_pull_request",
+    "create_pull_request_review",
+    "create_relations",
+    "create_repository",
+    "delete_entities",
+    "delete_observations",
+    "delete_relations",
+    "directory_tree",
+    "edit_file",
+    "homefs__list_directory",
+    "homefs__read_file",
+    "fork_repository",
+    "general-python__run_python_code",
+    "get-library-docs",
+    "get_file_contents",
+    "get_file_info",
+    "get_issue",
+    "get_paper_prompt",
+    "get_pull_request",
+    "get_pull_request_comments",
+    "get_pull_request_files",
+    "get_pull_request_reviews",
+    "get_pull_request_status",
+    "git_add",
+    "git_branch",
+    "git_checkout",
+    "git_commit",
+    "git_create_branch",
+    "git_diff",
+    "git_diff_staged",
+    "git_diff_unstaged",
+    "git_log",
+    "git_reset",
+    "git_show",
+    "git_status",
+    "glob",
+    "google_web_search",
+    "list_allowed_directories",
+    "list_commits",
+    "list_directory",
+    "list_directory_with_sizes",
+    "list_issues",
+    "list_pull_requests",
+    "merge_pull_request",
+    "move_file",
+    "open_nodes",
+    "push_files",
+    "read_file",
+    "read_graph",
+    "read_media_file",
+    "read_multiple_files",
+    "read_pdf",
+    "read_text_file",
+    "resolve-library-id",
+    "run_python_code",
+    "save_memory",
+    "search_code",
+    "search_file_content",
+    "search_files",
+    "search_issues",
+    "search_nodes",
+    "search_repositories",
+    "search_users",
+    "symbolic-math__run_python_code",
+    "update_issue",
+    "update_pull_request_branch",
+    "zotero_item_fulltext",
+    "zotero_item_metadata",
+    "zotero_search_items",
 ]
 
 
-def get_model_name(data: dict[str, Any]) -> str | None:
+def get_model_name(
+    data: dict[str, Any],
+) -> tuple[str | None, list[dict[str, Any]]]:
     """
-    Extract the model name with the highest totalRequests from the CLI output.
+    Extract the model name with the highest total tokens and used tools.
 
     Parameters
     ----------
@@ -60,48 +149,67 @@ def get_model_name(data: dict[str, Any]) -> str | None:
 
     Returns
     -------
-    str | None
-        The name of the model with the highest totalRequests, or None if not found.
+    tuple[str | None, list[dict[str, Any]]]
+        A tuple containing:
+        - The name of the model with the highest total tokens, or None.
+        - A list of dictionaries representing used tools with their stats.
     """
+    best_model: str | None = None
+    used_tools: list[dict[str, Any]] = []
+
     # 1. Check for top-level 'models' list (alternative format)
     models_list: Any | None = data.get("models")
     if isinstance(models_list, list):
-        max_requests: int = -1
-        best_model: str | None = None
+        max_tokens: int = -1
         for m in models_list:
             if isinstance(m, dict):
                 name: str | None = m.get("name")
-                requests: int = m.get("totalRequests", 0)
-                if requests > max_requests:
-                    max_requests = requests
-                    best_model = name
-        if best_model:
-            return best_model
+                # Try to get tokens, fallback to requests if needed or just 0
+                tokens_info: Any | None = m.get("tokens")
+                tokens: int = 0
+                if isinstance(tokens_info, dict):
+                    tokens: int = tokens_info.get("total", 0)
+
+                if tokens > max_tokens:
+                    max_tokens: int = tokens
+                    best_model: str | None = name
 
     # 2. Check for nested 'stats' -> 'models' (standard CLI format)
     stats: Any | None = data.get("stats")
     if isinstance(stats, dict):
         models_dict: Any | None = stats.get("models")
         if isinstance(models_dict, dict):
-            max_requests: int = -1
-            best_model: str | None = None
+            max_tokens: int = -1
             for name, info in models_dict.items():
                 if isinstance(info, dict):
-                    # totalRequests is usually inside the 'api' sub-dictionary
-                    api: Any | None = info.get("api", {})
-                    requests: int = 0
-                    if isinstance(api, dict):
-                        requests = api.get("totalRequests", 0)
-                    else:
-                        # Fallback to top-level of the model info
-                        requests = info.get("totalRequests", 0)
+                    # Look for tokens -> total
+                    tokens_info: Any | None = info.get("tokens", {})
+                    tokens: int = 0
+                    if isinstance(tokens_info, dict):
+                        tokens: int = tokens_info.get("total", 0)
 
-                    if requests > max_requests:
-                        max_requests = requests
-                        best_model = name
-            return best_model
+                    if tokens > max_tokens:
+                        max_tokens: int = tokens
+                        best_model: str | None = name
+        # Extract tools info
+        tools_stats: Any | None = stats.get("tools")
+        if isinstance(tools_stats, dict):
+            by_name: Any | None = tools_stats.get("byName")
+            if isinstance(by_name, dict):
+                for tool_name, tool_info in by_name.items():
+                    if isinstance(tool_info, dict):
+                        count: int = tool_info.get("count", 0)
+                        if count > 0:
+                            used_tools.append(
+                                {
+                                    "name": tool_name,
+                                    "count": count,
+                                    "success": tool_info.get("success", 0),
+                                    "fail": tool_info.get("fail", 0),
+                                }
+                            )
 
-    return None
+    return best_model, used_tools
 
 
 def main() -> None:
@@ -395,7 +503,7 @@ def main() -> None:
                                 new_session_id: str | None = data.get(
                                     "session_id"
                                 )
-                                model_name: str | None = get_model_name(data)
+                                model_name, used_tools = get_model_name(data)
 
                                 # Update session ID if provided
                                 if new_session_id is not None:
@@ -406,19 +514,54 @@ def main() -> None:
                                 # Render response
                                 st.markdown(response_text)
                                 if model_name:
+                                    # Format tools string
+                                    tools_str = ""
+                                    if used_tools:
+                                        tool_parts: list[str] = []
+                                        for t in used_tools:
+                                            name: str = t["name"]
+                                            success_rate: float = 0
+                                            if t["count"] > 0:
+                                                success_rate = (
+                                                    t["success"] / t["count"]
+                                                )
+
+                                            # Determine color based on success rate
+                                            color = "#d97706"  # orange (mixed)
+                                            if success_rate == 1.0:
+                                                color = (
+                                                    "#059669"  # green (success)
+                                                )
+                                            elif success_rate == 0.0:
+                                                color = "#dc2626"  # red (fail)
+
+                                            tool_parts.append(
+                                                f"<span style='color: {color}'>"
+                                                f"{name}</span>"
+                                            )
+                                        tools_str = (
+                                            f" (tools: {', '.join(tool_parts)})"
+                                        )
+
                                     st.markdown(
                                         f"<div style='text-align: right; "
                                         f"color: #888; font-size: 0.8em;'>"
-                                        f"{model_name}</div>",
+                                        f"{model_name}{tools_str}</div>",
                                         unsafe_allow_html=True,
                                     )
 
                                 # Save to history
+                                full_model_str: str | None = (
+                                    f"{model_name}{tools_str}"
+                                    if model_name
+                                    else None
+                                )
+
                                 st.session_state.messages.append(
                                     {
                                         "role": "assistant",
                                         "content": response_text,
-                                        "model": model_name,
+                                        "model": full_model_str,
                                     }
                                 )
 

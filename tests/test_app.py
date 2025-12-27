@@ -364,7 +364,9 @@ def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
     # Check if the model name is in the session state
     assistant_msg = at.session_state.messages[-1]
     assert assistant_msg["role"] == "assistant"
-    assert assistant_msg["model"] == "gemini-1.5-pro"
+    # The model string might now contain tool info, but in this simple test case
+    # with no tools in the mock, it should just be the model name.
+    assert "gemini-1.5-pro" in assistant_msg["model"]
 
     # Check if the model name is rendered in the markdown
     # It's rendered as a div with specific style
