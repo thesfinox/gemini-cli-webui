@@ -163,7 +163,7 @@ def test_init_metadata() -> None:
     import gwebui
 
     assert gwebui.__title__ == "gemini-webui"
-    assert gwebui.__version__ == "0.0.1"
+    assert gwebui.__version__ == "0.0.2"
     assert gwebui.cli is not None
 
 

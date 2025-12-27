@@ -18,7 +18,7 @@ Metadata
 __title__ = "gemini-webui"
 __description__ = "A simple Streamlit-powered web interface for gemini-cli."
 __url__ = "https://github.com/thesfinox/gemini-cli-webui"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __author__ = "Riccardo Finotello"
 __email__ = "riccardo.finotello@gmail.com"
 __license__ = "MIT"
