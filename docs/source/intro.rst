@@ -34,48 +34,53 @@ Before running the application, ensure you have the following installed:
 * **Python 3.13+**
 * **gemini-cli**: The core engine powering this UI.
 
-  .. code-block:: bash
+    .. code-block:: bash
 
-      npm install -g @google/gemini-cli
+        npm install -g @google/gemini-cli
 
 Remember to configure the authentication as per the `gemini-cli documentation <https://geminicli.com/docs/get-started/authentication/>`_.
 
 Installation
 ------------
 
-Using ``uv`` (Recommended)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+For Users (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~
 
-This project uses ``uv`` for fast dependency management.
+The easiest way to install and run ``gemini-webui`` is using ``pipx``. This ensures the application runs in an isolated environment without conflicting with other Python packages.
+
+.. code-block:: bash
+
+    pipx install git+https://github.com/thesfinox/gemini-cli-webui.git
+
+Once installed, you can run the application from anywhere:
+
+.. code-block:: bash
+
+    gemini-webui
+
+For Developers
+~~~~~~~~~~~~~~
+
+If you want to contribute or modify the code, we recommend using ``uv`` for fast dependency management.
 
 1. **Clone the repository**:
 
-   .. code-block:: bash
+    .. code-block:: bash
 
-       git clone https://github.com/thesfinox/gemini-cli-webui.git
-       cd gemini-webui
-
-2. **Install dependencies**:
-
-   .. code-block:: bash
-
-       uv sync
-
-Using ``pip``
-~~~~~~~~~~~~~
-
-1. **Clone the repository**:
-
-   .. code-block:: bash
-
-       git clone https://github.com/thesfinox/gemini-cli-webui.git
-       cd gemini-webui
+        git clone https://github.com/thesfinox/gemini-cli-webui.git
+        cd gemini-webui
 
 2. **Install dependencies**:
 
-   .. code-block:: bash
+    .. code-block:: bash
 
-       pip install .
+        uv sync
+
+3. **Run the application**:
+
+    .. code-block:: bash
+
+        uv run gemini-webui
 
 Usage
 -----
@@ -83,11 +88,3 @@ Usage
 To start the web interface, run:
 
 .. code-block:: bash
-
-    # If using uv
-    uv run gemini-webui
-
-    # If installed via pip
-    gemini-webui
-
-The application will open in your default web browser at ``http://localhost:8501``.

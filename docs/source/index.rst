@@ -9,7 +9,7 @@ Powered by `Streamlit <https://streamlit.io/>`_, this application provides a use
    :maxdepth: 2
    :caption: Contents:
 
-   readme_link
+   intro
    api
 
 Indices and tables

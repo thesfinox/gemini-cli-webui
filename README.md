@@ -43,9 +43,23 @@ Set up your Gemini API credentials as per the [`gemini-cli`](https://geminicli.c
 
 ## 🚀 Installation
 
-### Using `uv` (Recommended)
+### For Users (Recommended)
 
-This project uses `uv` for fast dependency management.
+The easiest way to install and run `gemini-webui` is using `pipx`. This ensures the application runs in an isolated environment without conflicting with other Python packages.
+
+```bash
+pipx install git+https://github.com/thesfinox/gemini-cli-webui.git
+```
+
+Once installed, you can run the application from anywhere:
+
+```bash
+gemini-webui
+```
+
+### For Developers
+
+If you want to contribute or modify the code, we recommend using `uv` for fast dependency management.
 
 1. **Clone the repository**:
 
@@ -60,19 +74,10 @@ This project uses `uv` for fast dependency management.
     uv sync
     ```
 
-### Using `pip`
-
-1. **Clone the repository**:
+3. **Run the application**:
 
     ```bash
-    git clone https://github.com/thesfinox/gemini-cli-webui.git
-    cd gemini-webui
-    ```
-
-2. **Install dependencies**:
-
-    ```bash
-    pip install .
+    uv run gemini-webui
     ```
 
 ## 💻 Usage
@@ -80,10 +85,6 @@ This project uses `uv` for fast dependency management.
 To start the web interface, run:
 
 ```bash
-# If using uv
-uv run gemini-webui
-
-# If installed via pip
 gemini-webui
 ```
 
