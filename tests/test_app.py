@@ -24,6 +24,7 @@ from PIL import Image
 from streamlit.proto.Common_pb2 import FileURLs
 from streamlit.testing.v1 import AppTest
 
+from gwebui.app import ALLOWED_TOOLS
 from gwebui.main import cli
 
 
@@ -163,7 +164,7 @@ def test_init_metadata() -> None:
     import gwebui
 
     assert gwebui.__title__ == "gemini-webui"
-    assert gwebui.__version__ == "0.0.2"
+    assert gwebui.__version__ == "0.0.3"
     assert gwebui.cli is not None
 
 
@@ -395,8 +396,4 @@ def test_allowed_tools_flag(
 
     # Find the index of --allowed-tools and check the next argument
     idx: int = args.index("--allowed-tools")
-    assert args[idx + 1] == (
-        "playwright,filesystem,memory,brave-search,context7,pandoc,open-pdf,"
-        "git,github,zotero,arxiv-latex-mcp,general-python,symbolic-math,"
-        "data-wrangler"
-    )
+    assert args[idx + 1] == ",".join(ALLOWED_TOOLS)
