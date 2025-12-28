@@ -108,15 +108,15 @@ jobs:
             - name: Get tag message
               id: tag_message
               run: |
-                  TAG_MESSAGE=$(git tag -l --format='%(contents)' ${{ github.ref_name }})
-                  echo "message<<EOF" >> $GITHUB_OUTPUT
-                  echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
+                  TAG_BODY=$(git tag -l --format='%(contents:body)' ${{ github.ref_name }})
+                  echo "body<<EOF" >> $GITHUB_OUTPUT
+                  echo "$TAG_BODY" >> $GITHUB_OUTPUT
                   echo "EOF" >> $GITHUB_OUTPUT
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
-                  body: ${{ steps.tag_message.outputs.message }}
+                  body: ${{ steps.tag_message.outputs.body }}
                   name: ${{ github.ref_name }}
                   draft: false
                   prerelease: false
