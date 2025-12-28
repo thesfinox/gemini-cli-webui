@@ -90,6 +90,12 @@ gemini-webui
 
 The application will open in your default web browser at `http://localhost:8501`.
 
+To serve the application on the local network, use the `--server.address` flag:
+
+```bash
+gemini-webui --server.address=0.0.0.0
+```
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to report bugs, suggest features, and submit pull requests.

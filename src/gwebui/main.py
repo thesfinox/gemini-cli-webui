@@ -44,6 +44,6 @@ def cli() -> int:
     return stcli.main()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     # Use SystemExit to handle the end of the session
     raise SystemExit(cli())

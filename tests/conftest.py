@@ -63,8 +63,11 @@ def temp_cwd(tmp_path: Path) -> Generator[Path, None, None]:
     """Fixture to change the current working directory to a temporary path."""
     original_cwd: str = os.getcwd()
     os.chdir(tmp_path)
+    # Set the upload directory to a local path for testing
+    os.environ["GEMINI_WEBUI_UPLOAD_DIR"] = str(tmp_path / "uploads")
     yield tmp_path
     os.chdir(original_cwd)
+    os.environ.pop("GEMINI_WEBUI_UPLOAD_DIR", None)
 
 
 @pytest.fixture

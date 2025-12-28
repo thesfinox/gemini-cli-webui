@@ -104,7 +104,7 @@ def test_file_upload(app_path: Path, temp_cwd: Path) -> None:
 
     mock_file = MockUploadedFile("test.txt", b"Hello World")
 
-    # Set the file in session_state using the dynamic key
+    # Set the file in session_state using the chat uploader dynamic key
     uploader_key: int = at.session_state["uploader_key"]
     at.session_state[f"file_uploader_{uploader_key}"] = [mock_file]
     at.run()
@@ -164,7 +164,7 @@ def test_init_metadata() -> None:
     import gwebui
 
     assert gwebui.__title__ == "gemini-webui"
-    assert gwebui.__version__ == "0.0.4"
+    assert gwebui.__version__ == "0.0.5"
     assert gwebui.cli is not None
 
 
@@ -397,3 +397,127 @@ def test_allowed_tools_flag(
     # Find the index of --allowed-tools and check the next argument
     idx: int = args.index("--allowed-tools")
     assert args[idx + 1] == ",".join(ALLOWED_TOOLS)
+
+
+def test_duplicate_file_upload(app_path: Path, temp_cwd: Path) -> None:
+    """Test that duplicate filenames are handled by appending a suffix."""
+    at: AppTest = AppTest.from_file(str(app_path)).run()
+
+    class MockUploadedFile:
+        def __init__(self, name: str, content: bytes) -> None:
+            self.name: str = name
+            self.content: bytes = content
+            self.size: int = len(content)
+            self.type: str = "text/plain"
+            self.file_id: str = "mock_id"
+            self._file_urls: FileURLs = FileURLs()
+
+        def getbuffer(self) -> bytes:
+            return self.content
+
+    # Upload first file
+    mock_file1 = MockUploadedFile("test.txt", b"First")
+    uploader_key: int = at.session_state["uploader_key"]
+    at.session_state[f"file_uploader_{uploader_key}"] = [mock_file1]
+    at.run()
+
+    # Upload second file with same name
+    mock_file2 = MockUploadedFile("test.txt", b"Second")
+    uploader_key = at.session_state["uploader_key"]
+    at.session_state[f"file_uploader_{uploader_key}"] = [mock_file2]
+    at.run()
+
+    # Upload third file with same name to hit i += 1
+    mock_file3 = MockUploadedFile("test.txt", b"Third")
+    uploader_key = at.session_state["uploader_key"]
+    at.session_state[f"file_uploader_{uploader_key}"] = [mock_file3]
+    at.run()
+
+    # Verify all files exist
+    upload_dir: Path = temp_cwd / "uploads"
+    assert (upload_dir / "test.txt").exists()
+    assert (upload_dir / "test_1.txt").exists()
+    assert (upload_dir / "test_2.txt").exists()
+    assert (upload_dir / "test.txt").read_bytes() == b"First"
+    assert (upload_dir / "test_1.txt").read_bytes() == b"Second"
+    assert (upload_dir / "test_2.txt").read_bytes() == b"Third"
+
+
+def test_delete_inactive_session(app_path: Path) -> None:
+    """Test deleting a session that is not currently active."""
+    at: AppTest = AppTest.from_file(str(app_path)).run()
+
+    # Inject history with two sessions
+    at.session_state.history = [
+        {
+            "session_id": "active-sid",
+            "title": "Active Chat",
+            "messages": [{"role": "user", "content": "msg1"}],
+        },
+        {
+            "session_id": "inactive-sid",
+            "title": "Inactive Chat",
+            "messages": [{"role": "user", "content": "msg2"}],
+        },
+    ]
+    at.session_state.session_id = "active-sid"
+    at.session_state.messages = [{"role": "user", "content": "msg1"}]
+    at.run()
+
+    # Find delete button for the inactive session
+    # Key: f"del_{i}_{chat['session_id']}" -> "del_1_inactive-sid"
+    delete_btn = None
+    for btn in at.sidebar.button:
+        if btn.key == "del_1_inactive-sid":
+            delete_btn = btn
+            break
+
+    assert delete_btn is not None
+    delete_btn.click().run()
+
+    # Verify inactive session is gone, but active remains
+    assert at.session_state.session_id == "active-sid"
+    assert len(at.session_state.history) == 1
+    assert at.session_state.history[0]["session_id"] == "active-sid"
+
+
+def test_tool_usage_colors(app_path: Path, mock_subprocess: MagicMock) -> None:
+    """Test that tool usage is displayed with correct colors based on success rate."""
+    at: AppTest = AppTest.from_file(str(app_path)).run()
+
+    # Mock response with tool stats
+    mock_subprocess.return_value.stdout = json.dumps(
+        {
+            "response": "Done",
+            "session_id": "sid",
+            "stats": {
+                "models": {"m": {"tokens": {"total": 1}}},
+                "tools": {
+                    "byName": {
+                        "success_tool": {"count": 1, "success": 1, "fail": 0},
+                        "fail_tool": {"count": 1, "success": 0, "fail": 1},
+                        "mixed_tool": {"count": 2, "success": 1, "fail": 1},
+                    }
+                },
+            },
+        }
+    )
+
+    at.chat_input[0].set_value("run tools").run()
+
+    # Check markdown for colors
+    found_success = False
+    found_fail = False
+    found_mixed = False
+
+    for md in at.markdown:
+        if "#059669" in md.value and "success_tool" in md.value:
+            found_success = True
+        if "#dc2626" in md.value and "fail_tool" in md.value:
+            found_fail = True
+        if "#d97706" in md.value and "mixed_tool" in md.value:
+            found_mixed = True
+
+    assert found_success
+    assert found_fail
+    assert found_mixed

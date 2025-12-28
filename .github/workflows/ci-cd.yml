@@ -1,122 +1,122 @@
 name: CI/CD Pipeline
 
 on:
-    push:
-        branches: [main]
-        tags: ["v*"]
-    pull_request:
-        branches: [main]
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
 
 permissions:
-    contents: read
-    pages: write
-    id-token: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-    lint:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - name: Install uv
-              uses: astral-sh/setup-uv@v5
-              with:
-                  enable-cache: true
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version-file: ".python-version"
-            - name: Install dependencies
-              run: uv sync --group build
-            - name: Run Ruff
-              run: |
-                  uv run ruff check src tests
-                  uv run ruff format --check src tests
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - name: Install dependencies
+        run: uv sync --group build
+      - name: Run Ruff
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
 
-    test:
-        needs: lint
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install uv
-              uses: astral-sh/setup-uv@v5
-              with:
-                  enable-cache: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version-file: ".python-version"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
 
-            - name: Install dependencies
-              run: uv sync --group test
+      - name: Install dependencies
+        run: uv sync --group test
 
-            - name: Run tests
-              run: uv run pytest --cov=src/gwebui tests/test_app.py
+      - name: Run tests
+        run: uv run pytest --cov=src/gwebui tests/test_app.py
 
-    docs:
-        needs: test
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+  docs:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install uv
-              uses: astral-sh/setup-uv@v5
-              with:
-                  enable-cache: true
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version-file: ".python-version"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
 
-            - name: Install dependencies
-              run: uv sync --group docs
+      - name: Install dependencies
+        run: uv sync --group docs
 
-            - name: Build documentation
-              run: |
-                  uv run sphinx-build -b html -d docs/build/doctrees docs/source docs/build/html
+      - name: Build documentation
+        run: |
+          uv run sphinx-build -b html -d docs/build/doctrees docs/source docs/build/html
 
-            - name: Upload artifact
-              uses: actions/upload-pages-artifact@v3
-              with:
-                  path: docs/build/html
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
 
-    deploy:
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        needs: docs
-        runs-on: ubuntu-latest
-        environment:
-            name: github-pages
-            url: ${{ steps.deployment.outputs.page_url }}
-        steps:
-            - name: Deploy to GitHub Pages
-              id: deployment
-              uses: actions/deploy-pages@v4
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
-    release:
-        if: startsWith(github.ref, 'refs/tags/')
-        needs: test
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Get tag message
-              id: tag_message
-              run: |
-                  TAG_BODY=$(git tag -l --format='%(contents:body)' ${{ github.ref_name }})
-                  echo "body<<EOF" >> $GITHUB_OUTPUT
-                  echo "$TAG_BODY" >> $GITHUB_OUTPUT
-                  echo "EOF" >> $GITHUB_OUTPUT
+      - name: Get tag message
+        id: tag_message
+        run: |
+          TAG_BODY=$(git tag -l --format='%(contents:body)' ${{ github.ref_name }})
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-            - name: Create Release
-              uses: softprops/action-gh-release@v2
-              with:
-                  body: ${{ steps.tag_message.outputs.body }}
-                  name: ${{ github.ref_name }}
-                  draft: false
-                  prerelease: false
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.tag_message.outputs.body }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false

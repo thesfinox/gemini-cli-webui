@@ -19,6 +19,8 @@ Authors
 
 import hashlib
 import json
+import os
+import platform
 import re
 import subprocess
 from io import BytesIO
@@ -150,6 +152,123 @@ ALLOWED_TOOLS: list[str] = [
 ]
 
 
+def get_upload_dir() -> Path:
+    """
+    Get the directory for storing uploaded files.
+
+    Returns
+    -------
+    Path
+        The path to the upload directory.
+    """
+    # Allow overriding via environment variable for testing
+    env_dir: str | None = os.environ.get("GEMINI_WEBUI_UPLOAD_DIR")
+    if env_dir:
+        path: Path = Path(env_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    if platform.system() == "Windows":
+        base_cache: Path = Path(
+            os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
+        )
+    elif platform.system() == "Darwin":
+        base_cache: Path = Path.home() / "Library" / "Caches"
+    else:
+        base_cache: Path = Path(
+            os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
+        )
+
+    upload_dir: Path = base_cache / "gemini-webui" / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
+
+
+def _read_uploaded_file_bytes(uploaded_file: UploadedFile) -> bytes:
+    """
+    Read bytes from a Streamlit UploadedFile.
+
+    Parameters
+    ----------
+    uploaded_file : UploadedFile
+        File-like object returned by Streamlit's uploader.
+
+    Returns
+    -------
+    bytes
+        File content as bytes.
+    """
+    # Some test doubles only implement `.getbuffer()`. Streamlit's real
+    # UploadedFile also supports `.getvalue()`.
+    getvalue: Any | None = getattr(uploaded_file, "getvalue", None)
+    if callable(getvalue):
+        return getvalue()
+
+    return bytes(uploaded_file.getbuffer())
+
+
+def _safe_upload_filename(
+    original_name: str | None, mime_type: str | None
+) -> str:
+    """
+    Derive a filesystem-safe filename from a browser-supplied name.
+
+    Android camera capture can yield odd names (including URI-like strings).
+    This function:
+    - strips path components,
+    - replaces unsafe characters,
+    - and (optionally) appends an extension inferred from MIME type.
+
+    Parameters
+    ----------
+    original_name : str | None
+        Browser-provided filename.
+    mime_type : str | None
+        Browser-provided MIME type (e.g. 'image/jpeg').
+
+    Returns
+    -------
+    str
+        Sanitised filename.
+    """
+    candidate: str = (original_name or "").strip()
+    # Keep only the last path segment to avoid directory traversal / URI paths.
+    candidate = Path(candidate).name
+
+    # Replace anything that could be problematic in filenames or downstream CLI.
+    candidate = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate).strip("._")
+
+    if not candidate:
+        candidate = "upload"
+
+    suffix: str = Path(candidate).suffix
+    if not suffix and mime_type:
+        mime_main: str = mime_type.split(";", 1)[0].strip().lower()
+        ext_map: dict[str, str] = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/heic": ".heic",
+            "image/heif": ".heif",
+            "text/markdown": ".md",
+            "text/x-markdown": ".md",
+            "application/pdf": ".pdf",
+            "text/plain": ".txt",
+            "audio/mpeg": ".mp3",
+            "audio/mp3": ".mp3",
+            "audio/x-mp3": ".mp3",
+            "audio/wav": ".wav",
+            "audio/x-wav": ".wav",
+            "audio/wave": ".wav",
+            "audio/flac": ".flac",
+            "audio/x-flac": ".flac",
+        }
+        candidate += ext_map.get(mime_main, "")
+
+    return candidate
+
+
 def get_model_name(
     data: dict[str, Any],
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -237,8 +356,7 @@ def main() -> None:
     # Ensure uploads directory exists
     # This directory stores files uploaded by the user or pasted as images
     # to be used as context for the Gemini CLI.
-    upload_dir: Path = Path("./uploads")
-    upload_dir.mkdir(exist_ok=True)
+    upload_dir: Path = get_upload_dir()
 
     # Configure the Streamlit page
     # Sets the title, icon, layout, and initial sidebar state.
@@ -375,7 +493,7 @@ def main() -> None:
         st.header("Context Files")
         # File Upload and Paste Interface
         # Provides a file uploader and a clipboard paste button side-by-side.
-        # Uploaded/pasted files are saved to 'uploads/' and passed to the CLI.
+        # Uploaded/pasted files are saved to the cache directory and passed to the CLI.
 
         # The "past_key" refers to the paste button component state.
         if "paste_key" not in st.session_state:
@@ -383,7 +501,7 @@ def main() -> None:
 
         # Layout for file uploader and paste button
         cols: list[DeltaGenerator] = st.columns(
-            [0.85, 0.15], vertical_alignment="bottom"
+            [0.85, 0.15], vertical_alignment="center"
         )
         with cols[0]:
             uploaded_files: list[UploadedFile] = st.file_uploader(
@@ -403,9 +521,28 @@ def main() -> None:
         # Process uploaded files
         if uploaded_files:
             for uploaded_file in uploaded_files:
-                file_path: Path = upload_dir / uploaded_file.name
+                safe_name: str = _safe_upload_filename(
+                    getattr(uploaded_file, "name", None),
+                    getattr(uploaded_file, "type", None),
+                )
+                file_path: Path = upload_dir / safe_name
+                file_bytes: bytes = _read_uploaded_file_bytes(uploaded_file)
+
+                # If a file with the same name exists, avoid overwriting it.
+                if file_path.exists():
+                    stem: str = file_path.stem
+                    suffix: str = file_path.suffix
+                    i: int = 1
+                    while True:
+                        candidate: Path = upload_dir / f"{stem}_{i}{suffix}"
+                        if not candidate.exists():
+                            file_path = candidate
+                            break
+                        i += 1
+
                 with open(file_path, mode="wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                    f.write(file_bytes)
+                st.toast(f"File uploaded: {file_path.name}")
             # Reset uploader to allow new uploads
             st.session_state.uploader_key += 1
             st.rerun()
@@ -431,7 +568,7 @@ def main() -> None:
             st.rerun()
 
         # Unified Context List
-        # Displays all files currently in the 'uploads/' directory.
+        # Displays all files currently in the upload directory.
         # Allows users to delete individual files from the context.
         all_files: list[Path] = sorted(list(upload_dir.glob("*")))
         if all_files:
@@ -541,13 +678,11 @@ def main() -> None:
                                                 )
 
                                             # Determine color based on success rate
-                                            color = "#d97706"  # orange (mixed)
+                                            color = "#d97706"  # orange-mix
                                             if success_rate == 1.0:
-                                                color = (
-                                                    "#059669"  # green (success)
-                                                )
+                                                color = "#059669"  # green-ok
                                             elif success_rate == 0.0:
-                                                color = "#dc2626"  # red (fail)
+                                                color = "#dc2626"  # red-fail
 
                                             tool_parts.append(
                                                 f"<span style='color: {color}'>"
@@ -630,7 +765,7 @@ def main() -> None:
                             st.code(output_str)
 
                 except Exception as e:
-                    st.error(f"An error occurred: {e}")
+                    st.error(f"An error occurred: {e}")  # pragma: no cover
 
 
 if __name__ == "__main__":
