@@ -23,7 +23,8 @@ def cli() -> int:
     Entry point for the Gemini CLI Web Interface.
 
     This function locates the `app.py` script and executes it using the
-    Streamlit CLI.
+    Streamlit CLI. Any command-line arguments passed to this script are
+    forwarded to Streamlit.
 
     Returns
     -------
@@ -34,8 +35,9 @@ def cli() -> int:
     app_path: str = os.path.join(os.path.dirname(__file__), "app.py")
 
     # Set up arguments for Streamlit
-    # We simulate the command line call: streamlit run app.py
-    sys.argv = ["streamlit", "run", app_path]
+    # We simulate the command line call: streamlit run app.py [args]
+    # This allows passing arguments like --server.port or --server.address
+    sys.argv = ["streamlit", "run", app_path] + sys.argv[1:]
 
     # Run Streamlit
     # The main function of the Streamlit CLI handles the execution
