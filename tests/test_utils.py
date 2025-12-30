@@ -31,51 +31,12 @@ def test_get_upload_dir_env_override(tmp_path):
         assert upload_dir.exists()
 
 
-def test_get_upload_dir_linux():
-    with patch("platform.system", return_value="Linux"):
-        with patch.dict(os.environ, {}, clear=True):
-            with patch("pathlib.Path.home", return_value=Path("/home/user")):
-                with patch("pathlib.Path.mkdir") as mock_mkdir:
-                    upload_dir = get_upload_dir()
-                    assert upload_dir == Path(
-                        "/home/user/.cache/gemini-webui/uploads"
-                    )
-                    mock_mkdir.assert_called_once_with(
-                        parents=True, exist_ok=True
-                    )
-
-
-def test_get_upload_dir_linux_xdg():
-    with patch("platform.system", return_value="Linux"):
-        with patch.dict(os.environ, {"XDG_CACHE_HOME": "/tmp/cache"}):
-            with patch("pathlib.Path.mkdir") as mock_mkdir:
-                upload_dir = get_upload_dir()
-                assert upload_dir == Path("/tmp/cache/gemini-webui/uploads")
-                mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
-
-
-def test_get_upload_dir_windows():
-    with patch("platform.system", return_value="Windows"):
-        with patch.dict(
-            os.environ, {"LOCALAPPDATA": "C:\\Users\\user\\AppData\\Local"}
-        ):
-            with patch("pathlib.Path.mkdir") as mock_mkdir:
-                upload_dir = get_upload_dir()
-                assert upload_dir == Path(
-                    "C:\\Users\\user\\AppData\\Local/gemini-webui/uploads"
-                )
-                mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
-
-
-def test_get_upload_dir_darwin():
-    with patch("platform.system", return_value="Darwin"):
-        with patch("pathlib.Path.home", return_value=Path("/Users/user")):
-            with patch("pathlib.Path.mkdir") as mock_mkdir:
-                upload_dir = get_upload_dir()
-                assert upload_dir == Path(
-                    "/Users/user/Library/Caches/gemini-webui/uploads"
-                )
-                mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+def test_get_upload_dir_default():
+    with patch("pathlib.Path.cwd", return_value=Path("/current/working/dir")):
+        with patch("pathlib.Path.mkdir") as mock_mkdir:
+            upload_dir = get_upload_dir()
+            assert upload_dir == Path("/current/working/dir/uploads")
+            mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
 
 @pytest.mark.parametrize(

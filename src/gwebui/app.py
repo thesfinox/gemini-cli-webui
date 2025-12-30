@@ -20,7 +20,6 @@ Authors
 import hashlib
 import json
 import os
-import platform
 import re
 import subprocess
 from io import BytesIO
@@ -168,18 +167,7 @@ def get_upload_dir() -> Path:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    if platform.system() == "Windows":
-        base_cache: Path = Path(
-            os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
-        )
-    elif platform.system() == "Darwin":
-        base_cache: Path = Path.home() / "Library" / "Caches"
-    else:
-        base_cache: Path = Path(
-            os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
-        )
-
-    upload_dir: Path = base_cache / "gemini-webui" / "uploads"
+    upload_dir: Path = Path.cwd() / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     return upload_dir
 
