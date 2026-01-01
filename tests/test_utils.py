@@ -18,7 +18,9 @@ import pytest
 from gwebui.app import (
     _read_uploaded_file_bytes,
     _safe_upload_filename,
+    adjust_color_nuance,
     get_model_name,
+    get_text_color,
     get_upload_dir,
 )
 
@@ -98,6 +100,29 @@ def test_read_uploaded_file_bytes_getvalue():
     mock_file = MagicMock()
     mock_file.getvalue.return_value = b"data"
     assert _read_uploaded_file_bytes(mock_file) == b"data"
+
+
+def test_adjust_color_nuance():
+    # White should become a light grey
+    assert adjust_color_nuance("#ffffff") == "#e5e5e5"
+    # Black should become a dark grey
+    assert adjust_color_nuance("#000000") == "#191919"
+    # Red should become a toned down red
+    # #ff0000 -> h=0, l=0.5, s=1.0
+    # s *= 0.5 -> 0.5, l += 0.1 -> 0.6
+    # hls_to_rgb(0, 0.6, 0.5) -> (0.8, 0.4, 0.4) -> #cc6565
+    assert adjust_color_nuance("#ff0000") == "#cc6565"
+
+
+def test_get_text_color():
+    # White background -> black text
+    assert get_text_color("#ffffff") == "#000000"
+    # Black background -> white text
+    assert get_text_color("#000000") == "#ffffff"
+    # Dark blue -> white text
+    assert get_text_color("#000080") == "#ffffff"
+    # Light yellow -> black text
+    assert get_text_color("#ffff00") == "#000000"
 
 
 def test_read_uploaded_file_bytes_getbuffer():
