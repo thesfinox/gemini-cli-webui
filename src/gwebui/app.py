@@ -18,6 +18,7 @@ Authors
 """
 
 import colorsys
+import io
 import json
 import mimetypes
 import os
@@ -28,6 +29,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import streamlit as st
+from PIL import Image
 from streamlit.delta_generator import DeltaGenerator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -463,6 +465,49 @@ def render_file_tree(
                     ):
                         child.unlink()
                         st.rerun()
+
+
+def _resize_image_if_needed(file_bytes: bytes, filename: str) -> bytes:
+    """
+    Resize image to max 512px dimension if it is an image file.
+
+    Parameters
+    ----------
+    file_bytes : bytes
+        The raw file content.
+    filename : str
+        The filename to check extension/type.
+
+    Returns
+    -------
+    bytes
+        The original or resized bytes.
+    """
+    try:
+        # Check if it looks like an image based on extension
+        if not any(
+            filename.lower().endswith(ext)
+            for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"]
+        ):
+            return file_bytes
+
+        with Image.open(io.BytesIO(file_bytes)) as img:
+            max_size = 512
+            if max(img.size) > max_size:
+                ratio = max_size / max(img.size)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+                out_buffer = io.BytesIO()
+                # Preserve format if possible, default to JPEG or PNG
+                fmt = img.format if img.format else "PNG"
+                img.save(out_buffer, format=fmt)
+                return out_buffer.getvalue()
+    except Exception:
+        # If anything fails (not an image, PIL error, etc), return original
+        pass
+
+    return file_bytes
 
 
 def _read_uploaded_file_bytes(uploaded_file: UploadedFile) -> bytes:
@@ -1104,6 +1149,7 @@ def main() -> None:
             )
             file_path: Path = upload_dir / safe_name
             file_bytes: bytes = _read_uploaded_file_bytes(uploaded_file)
+            file_bytes = _resize_image_if_needed(file_bytes, safe_name)
 
             if file_path.exists():
                 stem: str = file_path.stem
@@ -1118,16 +1164,19 @@ def main() -> None:
 
             with open(file_path, mode="wb") as f:
                 f.write(file_bytes)
-            saved_files.append(file_path.name)
+            saved_files.append(str(file_path.absolute()))
 
         if saved_files:
             st.toast(f"File(s) uploaded: {', '.join(saved_files)}")
 
-        if prompt and saved_files:
-            prompt = f"{prompt}\n\n[Attached: {', '.join(saved_files)}]"
+        if saved_files:
+            attachment_info = f"[Attached: {', '.join(saved_files)}]"
+            if prompt:
+                prompt = f"{prompt}\n\n{attachment_info}"
+            else:
+                prompt = attachment_info
 
-        # If the user only uploaded files (no text), refresh to show them in the
-        # context list without sending an empty prompt to the model.
+        # If the prompt is still empty (no text and no files), refresh.
         if not prompt:
             st.rerun()
 
