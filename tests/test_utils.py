@@ -54,7 +54,7 @@ def test_get_upload_dir_default():
         ("audio", "audio/mpeg", "audio.mp3"),
         ("wave", "audio/wav", "wave.wav"),
         ("lossless", "audio/flac", "lossless.flac"),
-        ("unknown", "application/octet-stream", "unknown"),
+        ("unknown", "application/octet-stream", "unknown.bin"),
     ],
 )
 def test_safe_upload_filename(name, mime, expected):

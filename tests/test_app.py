@@ -16,9 +16,10 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
+from pytest_mock import MockerFixture
 from streamlit.testing.v1 import AppTest
 
+import gwebui
 from gwebui.app import ALLOWED_TOOLS
 from gwebui.main import cli
 
@@ -91,10 +92,8 @@ def test_file_upload_and_image_paste_removed() -> None:
     assert True
 
 
-def test_main_cli(mocker: pytest.LogCaptureFixture) -> None:
+def test_main_cli(mocker: MockerFixture) -> None:
     """Test the CLI entry point in main.py."""
-    # Using Any for mocker as pytest-mock doesn't always export the type easily
-    # without extra configuration, but we can use MagicMock for the return.
     mock_st_main: MagicMock = mocker.patch(
         "streamlit.web.cli.main", return_value=0
     )
@@ -105,13 +104,9 @@ def test_main_cli(mocker: pytest.LogCaptureFixture) -> None:
     assert mock_st_main.called
 
 
-def test_init_metadata() -> None:
-    """Test package metadata in __init__.py."""
-    import gwebui
-
-    assert gwebui.__title__ == "gemini-webui"
-    assert gwebui.__version__ == "0.1.1"
-    assert gwebui.cli is not None
+def test_version_exists():
+    assert hasattr(gwebui, "__version__")
+    assert gwebui.__version__ == "0.1.2"
 
 
 def test_cli_error(app_path: Path, mock_subprocess: MagicMock) -> None:

@@ -19,19 +19,20 @@ Authors
 
 import colorsys
 import json
+import mimetypes
 import os
 import re
 import subprocess
 import webbrowser
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # List of allowed MCP tools to avoid confirmation prompts
-ALLOWED_TOOLS: list[str] = [
+ALLOWED_TOOLS: Final[list[str]] = [
     "add_issue_comment",
     "add_observations",
     "brave_image_search",
@@ -52,6 +53,69 @@ ALLOWED_TOOLS: list[str] = [
     "browser_install",
     "browser_navigate",
     "browser_navigate_back",
+    "browser_network_requests",
+    "browser_press_key",
+    "browser_resize",
+    "browser_select_option",
+    "browser_snapshot",
+    "browser_tabs",
+    "browser_take_screenshot",
+    "browser_type",
+    "browser_wait_for",
+    "convert-contents",
+    "convert_time",
+    "create_branch",
+    "create_directory",
+    "create_entities",
+    "create_issue",
+    "create_or_update_file",
+    "create_pull_request",
+    "create_pull_request_review",
+    "create_relations",
+    "create_repository",
+    "delete_entities",
+    "delete_observations",
+    "delete_relations",
+    "directory_tree",
+    "edit_file",
+    "fetch",
+    "filesystem__list_directory",
+    "filesystem__read_file",
+    "filesystem__write_file",
+    "fork_repository",
+    "get-library-docs",
+    "get_current_time",
+    "get_file_contents",
+    "get_file_info",
+    "get_issue",
+    "get_paper_prompt",
+    "get_pull_request",
+    "get_pull_request_comments",
+    "get_pull_request_files",
+    "get_pull_request_reviews",
+    "get_pull_request_status",
+    "git_add",
+    "git_branch",
+    "git_checkout",
+    "git_commit",
+    "git_create_branch",
+    "git_diff",
+    "git_diff_staged",
+    "git_diff_unstaged",
+    "git_log",
+    "git_reset",
+    "git_show",
+    "git_status",
+    "list_allowed_directories",
+    "list_commits",
+    "list_directory_with_sizes",
+    "list_issues",
+    "list_pull_requests",
+    "merge_pull_request",
+    "open_nodes",
+    "push_files",
+    "python_sandbox__run_python_code",
+    "read_graph",
     "read_media_file",
     "read_multiple_files",
     "read_pdf",
@@ -59,7 +123,6 @@ ALLOWED_TOOLS: list[str] = [
     "replace",
     "resolve-library-id",
     "run_python_code",
-    "run_shell_command",
     "save_memory",
     "search_code",
     "search_file_content",
@@ -80,6 +143,53 @@ ALLOWED_TOOLS: list[str] = [
 ]
 
 
+# Pre-compiled regex patterns
+SAFE_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9_-]")
+FILENAME_SAFE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._-]+")
+JSON_MATCH_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\{.*\}", flags=re.DOTALL
+)
+
+
+# File extension to emoji mapping
+FILE_EMOJI_MAP: dict[str, str] = {
+    ".pdf": "📕",
+    ".py": "🐍",
+    ".txt": "📝",
+    ".md": "📝",
+    ".rst": "📝",
+    ".csv": "📊",
+    ".json": "📊",
+    ".xlsx": "📊",
+    ".xls": "📊",
+    ".png": "🖼️",
+    ".jpg": "🖼️",
+    ".jpeg": "🖼️",
+    ".gif": "🖼️",
+    ".svg": "🖼️",
+    ".webp": "🖼️",
+    ".zip": "📦",
+    ".tar": "📦",
+    ".gz": "📦",
+    ".7z": "📦",
+    ".rar": "📦",
+    ".mp3": "🎵",
+    ".wav": "🎵",
+    ".ogg": "🎵",
+    ".flac": "🎵",
+    ".mp4": "🎥",
+    ".mov": "🎥",
+    ".avi": "🎥",
+    ".mkv": "🎥",
+    ".html": "🌐",
+    ".css": "🌐",
+    ".js": "🌐",
+    ".ts": "🌐",
+    ".jsx": "🌐",
+    ".tsx": "🌐",
+}
+
+
 def get_file_emoji(path: Path) -> str:
     """
     Return an emoji based on the file type or extension.
@@ -97,27 +207,7 @@ def get_file_emoji(path: Path) -> str:
     if path.is_dir():
         return "📁"
 
-    ext = path.suffix.lower()
-    if ext == ".pdf":
-        return "📕"
-    if ext in [".txt", ".md", ".rst"]:
-        return "📝"
-    if ext == ".py":
-        return "🐍"
-    if ext in [".csv", ".json", ".xlsx", ".xls"]:
-        return "📊"
-    if ext in [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"]:
-        return "🖼️"
-    if ext in [".zip", ".tar", ".gz", ".7z", ".rar"]:
-        return "📦"
-    if ext in [".mp3", ".wav", ".ogg", ".flac"]:
-        return "🎵"
-    if ext in [".mp4", ".mov", ".avi", ".mkv"]:
-        return "🎥"
-    if ext in [".html", ".css", ".js", ".ts", ".jsx", ".tsx"]:
-        return "🌐"
-
-    return "📄"
+    return FILE_EMOJI_MAP.get(path.suffix.lower(), "📄")
 
 
 def open_in_browser(path: Path) -> None:
@@ -247,7 +337,7 @@ def _node_key(path: Path) -> str:
         Key-safe string usable in Streamlit widgets.
     """
 
-    safe_key: str = re.sub(r"[^A-Za-z0-9_-]", "_", path.as_posix())
+    safe_key: str = SAFE_KEY_PATTERN.sub("_", path.as_posix())
     return safe_key
 
 
@@ -427,7 +517,7 @@ def _safe_upload_filename(
     candidate = Path(candidate).name
 
     # Replace anything that could be problematic in filenames or downstream CLI.
-    candidate = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate).strip("._")
+    candidate = FILENAME_SAFE_PATTERN.sub("_", candidate).strip("._")
 
     if not candidate:
         candidate = "upload"
@@ -435,6 +525,7 @@ def _safe_upload_filename(
     suffix: str = Path(candidate).suffix
     if not suffix and mime_type:
         mime_main: str = mime_type.split(";", 1)[0].strip().lower()
+        # Preferred extensions for common types
         ext_map: dict[str, str] = {
             "image/jpeg": ".jpg",
             "image/jpg": ".jpg",
@@ -455,7 +546,13 @@ def _safe_upload_filename(
             "audio/flac": ".flac",
             "audio/x-flac": ".flac",
         }
-        candidate += ext_map.get(mime_main, "")
+
+        ext: str | None = ext_map.get(mime_main)
+        if not ext:
+            ext = mimetypes.guess_extension(mime_main)
+
+        if ext:
+            candidate += ext
 
     return candidate
 
@@ -1072,8 +1169,8 @@ def main() -> None:
                         output_str: str = result.stdout
                         try:
                             # Find the start of the JSON object
-                            json_match: re.Match[str] | None = re.search(
-                                r"\{.*\}", output_str, flags=re.DOTALL
+                            json_match: re.Match[str] | None = (
+                                JSON_MATCH_PATTERN.search(output_str)
                             )
                             if json_match:
                                 json_str: str = json_match.group(0)

@@ -14,11 +14,12 @@ Authors
 
 import os
 import sys
+from typing import Any
 
 from streamlit.web import cli as stcli
 
 
-def cli() -> int:
+def cli() -> Any:
     """
     Entry point for the Gemini CLI Web Interface.
 
@@ -28,8 +29,8 @@ def cli() -> int:
 
     Returns
     -------
-    int
-        The exit code of the Streamlit process.
+    Any
+        The exit code of the Streamlit process or other result.
     """
     # Locate the app.py file relative to this script
     app_path: str = os.path.join(os.path.dirname(__file__), "app.py")
