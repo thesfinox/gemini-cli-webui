@@ -15,3 +15,8 @@ API Reference
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. automodule:: gwebui.tools
+   :members:
+   :undoc-members:
+   :show-inheritance:

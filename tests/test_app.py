@@ -18,9 +18,20 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from gwebui.app import ALLOWED_TOOLS
+
+
+@pytest.fixture(autouse=True)
+def mock_session_tools():
+    """Mock session persistence tools for all tests."""
+    with (
+        patch("gwebui.tools.list_available_sessions", return_value=[]),
+        patch("gwebui.tools.load_session_from_disk", return_value=[]),
+    ):
+        yield
 
 
 def test_app_startup(app_path: Path, temp_cwd: Path) -> None:
@@ -63,7 +74,17 @@ def test_chat_interaction(
     # Simulate user input
     prompt: str = "Hello Gemini"
     os.environ["GEMINI_TEST_PROMPT"] = prompt
-    at.run()
+
+    # Mock loading the session returning the new messages
+    # We expect the user message and the assistant message
+    with patch(
+        "gwebui.tools.load_session_from_disk",
+        return_value=[
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": "mock response"},
+        ],
+    ):
+        at.run()
 
     # Verify subprocess was called
     mock_subprocess.assert_called_once()
@@ -147,34 +168,53 @@ def test_history_update_existing(
     app_path: Path, mock_subprocess: MagicMock
 ) -> None:
     """Test updating an existing session in history."""
-    at: AppTest = AppTest.from_file(str(app_path)).run()
+    at: AppTest = AppTest.from_file(str(app_path))
 
-    # Inject history
-    at.session_state.history = [
-        {
-            "session_id": "sid-123",
-            "title": "Old Title",
-            "messages": [{"role": "user", "content": "old msg"}],
-        }
+    # Mock session data
+    session_id = "sid-123"
+    updated_messages = [
+        {"role": "user", "content": "old msg"},
+        {"role": "user", "content": "new msg"},
+        {"role": "assistant", "content": "new response", "model": None},
     ]
-    at.session_state.session_id = "sid-123"
-    at.session_state.messages = [{"role": "user", "content": "old msg"}]
-    # Do NOT run yet, we want to set the mock first
 
-    # Mock response
-    mock_subprocess.return_value.returncode = 0
-    mock_subprocess.return_value.stdout = json.dumps(
-        {"response": "new response", "session_id": "sid-123"}
-    )
+    # Mock return values
+    with (
+        patch(
+            "gwebui.tools.list_available_sessions",
+            return_value=[
+                {
+                    "session_id": session_id,
+                    "title": "Old Title",
+                    "timestamp": "2023-01-01",
+                }
+            ],
+        ),
+        patch(
+            "gwebui.tools.load_session_from_disk",
+            side_effect=[
+                updated_messages
+            ],  # Only called once after CLI execution
+        ),
+    ):
+        # Initial run to load session
+        at.run()
+        at.session_state.session_id = session_id
+        at.run()  # Rerun to load messages
 
-    os.environ["GEMINI_TEST_PROMPT"] = "new msg"
-    at.run()
+        # Mock response from CLI
+        mock_subprocess.return_value.returncode = 0
+        mock_subprocess.return_value.stdout = json.dumps(
+            {"response": "new response", "session_id": session_id}
+        )
 
-    # Verify history was updated, not duplicated
-    assert len(at.session_state.history) == 1
-    assert (
-        at.session_state.history[0]["messages"][-1]["content"] == "new response"
-    )
+        # Send new message
+        os.environ["GEMINI_TEST_PROMPT"] = "new msg"
+        at.run()
+
+        # Verify messages updated from disk
+        assert len(at.session_state.messages) == 3
+        assert at.session_state.messages[-1]["content"] == "new response"
 
 
 def test_context_deletion(app_path: Path, temp_cwd: Path) -> None:
@@ -209,7 +249,19 @@ def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
     os.environ["GEMINI_TEST_PROMPT"] = "What model are you?"
-    at.run()
+
+    with patch(
+        "gwebui.tools.load_session_from_disk",
+        return_value=[
+            {"role": "user", "content": "What model are you?"},
+            {
+                "role": "assistant",
+                "content": "I am gemini-1.5-pro",
+                "model": "gemini-1.5-pro",
+            },
+        ],
+    ):
+        at.run()
 
     # Check if the model name is in the session state
     assistant_msg = at.session_state.messages[-1]
@@ -272,7 +324,19 @@ def test_tool_usage_colors(app_path: Path, mock_subprocess: MagicMock) -> None:
     )
 
     os.environ["GEMINI_TEST_PROMPT"] = "run tools"
-    at.run()
+
+    with patch(
+        "gwebui.tools.load_session_from_disk",
+        return_value=[
+            {"role": "user", "content": "run tools"},
+            {
+                "role": "assistant",
+                "content": "Done",
+                "model": "gemini-1.5-pro (tools: success_tool, fail_tool, mixed_tool)",
+            },
+        ],
+    ):
+        at.run()
 
     # Check markdown for colors
     found_success = False
@@ -319,9 +383,18 @@ def test_file_only_submission(
     # Mock st.chat_input to return a payload with files but no text only once
     mock_payload = {"text": "", "files": [mock_file]}
 
-    with patch(
-        "streamlit.chat_input",
-        side_effect=[mock_payload, None, None, None, None],
+    with (
+        patch(
+            "streamlit.chat_input",
+            side_effect=[mock_payload, None, None, None, None],
+        ),
+        patch(
+            "gwebui.tools.load_session_from_disk",
+            return_value=[
+                {"role": "user", "content": "[Attached: camera_capture.jpg]"},
+                {"role": "assistant", "content": "I see the image"},
+            ],
+        ),
     ):
         at.run()
 

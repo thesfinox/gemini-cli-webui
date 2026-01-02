@@ -6,6 +6,7 @@ This module contains reusable utility functions and core logic for the Gemini We
 """
 
 import colorsys
+import hashlib
 import io
 import json
 import mimetypes
@@ -648,6 +649,190 @@ def get_model_name(
                             )
 
     return best_model, used_tools
+
+
+def get_project_hash(project_path: Path | None = None) -> str:
+    """
+    Compute the SHA256 hash of the project path for gemini-cli storage.
+
+    Parameters
+    ----------
+    project_path : Path | None, optional
+        The project root directory. Defaults to CWD.
+
+    Returns
+    -------
+    str
+        The SHA256 hash hexdigest.
+    """
+    if project_path is None:
+        project_path = Path.cwd()
+    # gemini-cli uses the absolute path string
+    return hashlib.sha256(
+        project_path.absolute().as_posix().encode("utf-8")
+    ).hexdigest()
+
+
+def get_session_dir() -> Path:
+    """
+    Locate the gemini-cli session storage directory for the current project.
+
+    Returns
+    -------
+    Path
+        Path to the chats directory.
+    """
+    # Directory structure: ~/.gemini/tmp/<PROJECT_HASH>/chats
+    return Path.home() / ".gemini" / "tmp" / get_project_hash() / "chats"
+
+
+def list_available_sessions() -> list[dict[str, Any]]:
+    """
+    List all sessions available in the gemini-cli storage.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        A list of session metadata dicts sorted by timestamp (newest first).
+    """
+    session_dir: Path = get_session_dir()
+    if not session_dir.exists():
+        return []
+
+    sessions: list[dict[str, Any]] = []
+    # Filenames are typically session-<param_case_timestamp>-<short_id>.json
+    for f in session_dir.glob("session-*.json"):
+        try:
+            # We assume utf-8 encoding for JSON files
+            content: str = f.read_text(encoding="utf-8")
+            data: dict[str, Any] = json.loads(content)
+
+            # Extract or derive title
+            messages: list[dict[str, Any]] = data.get("messages", [])
+            # Find first user message for title
+            first_user_msg: str = next(
+                (
+                    str(m.get("content", ""))
+                    for m in messages
+                    if m.get("type") == "user"
+                ),
+                "New Chat",
+            )
+            title: str = (
+                (first_user_msg[:30] + "...")
+                if len(first_user_msg) > 30
+                else first_user_msg
+            )
+
+            # Timestamp: prefer lastUpdated, fallback to startTime
+            timestamp: str = data.get("lastUpdated") or data.get(
+                "startTime", ""
+            )
+
+            sessions.append(
+                {
+                    "session_id": data.get("sessionId"),
+                    "title": title,
+                    "timestamp": timestamp,
+                    "file_path": str(f.absolute()),
+                }
+            )
+        except Exception:
+            # Skip unreadable or malformed files
+            continue
+
+    # Sort descendants by timestamp
+    sessions.sort(key=lambda x: x["timestamp"], reverse=True)
+    return sessions
+
+
+def load_session_from_disk(session_id: str) -> list[dict[str, Any]]:
+    """
+    Load a session's message history from disk.
+
+    Parameters
+    ----------
+    session_id : str
+        The full UUID of the session.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        List of messages formatted for Streamlit (role, content, etc.).
+    """
+    session_dir: Path = get_session_dir()
+    # gemini-cli filenames contain the first 8 chars of the UUID
+    short_id: str = session_id[:8]
+    files: list[Path] = list(session_dir.glob(f"session-*-{short_id}.json"))
+
+    if not files:
+        return []
+
+    # If matches found, try to find the one with the exact full ID inside
+    # to avoid collision (unlikely but safer).
+    target_file: Path | None = None
+    for f in files:
+        try:
+            content = f.read_text(encoding="utf-8")
+            if session_id in content:  # Quick check before parsing
+                target_file = f
+                break
+        except Exception:
+            continue
+
+    if not target_file:
+        # Fallback to the first file if exact match search fails (e.g. read error)
+        # or just pick the first one if we trust the short ID.
+        target_file = files[0]
+
+    try:
+        data: dict[str, Any] = json.loads(
+            target_file.read_text(encoding="utf-8")
+        )
+        messages: list[dict[str, Any]] = data.get("messages", [])
+
+        formatted_messages: list[dict[str, Any]] = []
+        for m in messages:
+            msg_type: str = m.get("type", "unknown")
+            content: str = m.get("content", "")
+
+            # Map gemini-cli types to Streamlit roles
+            role: str = "assistant"  # default
+            if msg_type == "user":
+                role = "user"
+            elif msg_type == "gemini":
+                role = "assistant"
+            elif msg_type == "info":
+                # Info messages (e.g. model switch)
+                # We can display them as system/assistant blocks
+                content = f"ℹ️ *{content}*"
+                role = "assistant"
+            elif msg_type == "error":
+                content = f"❌ *{content}*"
+                role = "assistant"
+
+            # Extract model info if present
+            model: str | None = m.get("model")
+
+            # Extract tools if present?
+            # gemini-cli stores tool usage in specific ways?
+            # Research showed 'thoughts' array within message.
+            # We can try to format that if needed, but existing logic uses 'model' field string in session state.
+            # We might need to reconstruct the `model` string (e.g. "gemini-1.5-pro (tools: ...)")
+            # from the message data if we want it preserved.
+            # However, `load_session` is mostly for restoring history.
+            # The simple `model` field might be enough if `gemini-cli` saved it there?
+            # The research JSON didn't show "model" string with tool info in the message root,
+            # but `gemini-cli` output usually puts it in `model`.
+
+            formatted_messages.append(
+                {"role": role, "content": content, "model": model}
+            )
+
+        return formatted_messages
+
+    except Exception:
+        return []
 
 
 def save_uploaded_files(
