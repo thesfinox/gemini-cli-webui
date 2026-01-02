@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -32,6 +33,7 @@ import streamlit as st
 from PIL import Image
 from streamlit.delta_generator import DeltaGenerator
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+from streamlit_paste_button import paste_image_button as pbutton, PasteResult
 
 # List of allowed MCP tools to avoid confirmation prompts
 ALLOWED_TOOLS: Final[list[str]] = [
@@ -75,15 +77,13 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "create_pull_request_review",
     "create_relations",
     "create_repository",
+    "delegate_to_agent",
     "delete_entities",
     "delete_observations",
     "delete_relations",
     "directory_tree",
     "edit_file",
     "fetch",
-    "filesystem__list_directory",
-    "filesystem__read_file",
-    "filesystem__write_file",
     "fork_repository",
     "get-library-docs",
     "get_current_time",
@@ -108,15 +108,21 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "git_reset",
     "git_show",
     "git_status",
+    "glob",
+    "google_web_search",
     "list_allowed_directories",
     "list_commits",
+    "list_directory",
     "list_directory_with_sizes",
     "list_issues",
     "list_pull_requests",
     "merge_pull_request",
+    "move_file",
     "open_nodes",
     "push_files",
     "python_sandbox__run_python_code",
+    "query_docs",
+    "read_file",
     "read_graph",
     "read_media_file",
     "read_multiple_files",
@@ -124,7 +130,7 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "read_text_file",
     "replace",
     "resolve-library-id",
-    "run_python_code",
+    "run_python_code",  # From symbolic-math
     "save_memory",
     "search_code",
     "search_file_content",
@@ -485,23 +491,55 @@ def _resize_image_if_needed(file_bytes: bytes, filename: str) -> bytes:
     """
     try:
         # Check if it looks like an image based on extension
-        if not any(
-            filename.lower().endswith(ext)
-            for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"]
-        ):
+        # We include a broader set of extensions here
+        valid_exts: list[str] = [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp",
+            ".bmp",
+            ".gif",
+            ".heic",
+            ".heif",
+            ".tiff",
+            ".jfif",
+        ]
+        if not any(filename.lower().endswith(ext) for ext in valid_exts):
             return file_bytes
 
         with Image.open(io.BytesIO(file_bytes)) as img:
-            max_size = 512
-            if max(img.size) > max_size:
-                ratio = max_size / max(img.size)
-                new_size = (int(img.width * ratio), int(img.height * ratio))
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
+            orig_format: str | None = img.format
+            max_size: int = 512
 
-                out_buffer = io.BytesIO()
-                # Preserve format if possible, default to JPEG or PNG
-                fmt = img.format if img.format else "PNG"
-                img.save(out_buffer, format=fmt)
+            if max(img.size) > max_size:
+                ratio: float = max_size / max(img.size)
+                new_size: tuple[int, int] = (
+                    int(img.width * ratio),
+                    int(img.height * ratio),
+                )
+
+                # Resampling compatibility (Pillow < 9.1.0)
+                resample = getattr(
+                    getattr(Image, "Resampling", Image), "LANCZOS"
+                )
+
+                # Perform resize
+                resized_img: Image.Image = img.resize(new_size, resample)
+
+                # Determine format to save
+                # If we don't have a format, default to PNG
+                save_format: str = orig_format if orig_format else "PNG"
+
+                # JPEG doesn't support alpha channel (RGBA, LA, P with transparency)
+                if save_format == "JPEG" and resized_img.mode in (
+                    "RGBA",
+                    "LA",
+                    "P",
+                ):
+                    resized_img = resized_img.convert("RGB")
+
+                out_buffer: io.BytesIO = io.BytesIO()
+                resized_img.save(out_buffer, format=save_format)
                 return out_buffer.getvalue()
     except Exception:
         # If anything fails (not an image, PIL error, etc), return original
@@ -528,7 +566,7 @@ def _read_uploaded_file_bytes(uploaded_file: UploadedFile) -> bytes:
     # UploadedFile also supports `.getvalue()`.
     getvalue: Any | None = getattr(uploaded_file, "getvalue", None)
     if callable(getvalue):
-        return getvalue()
+        return bytes(getvalue())  # type: ignore
 
     return bytes(uploaded_file.getbuffer())
 
@@ -886,8 +924,37 @@ def main() -> None:
         st.divider()
 
         # Unified Context List (tree view)
+        st.subheader("Active Context")
+
+        # Clipboard Integration
+        # Allows users to paste images directly from their clipboard.
+        paste_result: PasteResult = pbutton(
+            label="📋 Paste Image",
+            key="context_paste",
+        )
+        if paste_result.image_data is not None:
+            # Generate a unique filename for the pasted image
+            timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pasted_name: str = f"pasted_image_{timestamp}.png"
+            pasted_path: Path = upload_dir / pasted_name
+
+            # Convert PIL image to bytes
+            img_bytes = io.BytesIO()
+            img: Any = paste_result.image_data
+            img.save(img_bytes, format="PNG")
+            pasted_bytes: bytes = img_bytes.getvalue()
+
+            # Resize if needed
+            pasted_bytes = _resize_image_if_needed(pasted_bytes, pasted_name)
+
+            # Save to uploads directory
+            with open(pasted_path, "wb") as f:
+                f.write(pasted_bytes)
+
+            st.toast(f"Image pasted and saved: {pasted_name}")
+            st.rerun()
+
         if any(upload_dir.iterdir()):
-            st.subheader("Active Context")
             ctx_container: DeltaGenerator = st.container()
             render_file_tree(
                 upload_dir,
@@ -1062,6 +1129,14 @@ def main() -> None:
                 align-items: center !important;
                 overflow: hidden !important;
             }}
+            /* Override paste button container background to match sidebar */
+            [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] div[data-testid="element-container"] .st-emotion-cache-1vt4885,
+            [data-testid="stSidebar"] .st-emotion-cache-1vt4885 {{
+                background-color: var(--sidebar-bg) !important;
+            }}
+            [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] div[data-testid="element-container"] button {{
+                border-radius: 10px !important;
+            }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1091,7 +1166,7 @@ def main() -> None:
     # Captures user input (text + optional attachments), saves files to context,
     # constructs the CLI command, and handles the response.
     env_prompt: str | None = os.environ.pop("GEMINI_TEST_PROMPT", None)
-    chat_submission: str | dict[str, Any] | None = env_prompt or st.chat_input(
+    chat_submission: Any = env_prompt or st.chat_input(
         "Ask Gemini... ", accept_file="multiple", key="chat_prompt"
     )
     # NOTE: Do not rely on truthiness here.
@@ -1239,9 +1314,9 @@ def main() -> None:
 
                                 # Render response
                                 st.markdown(response_text)
+                                tools_str: str = ""
                                 if model_name:
                                     # Format tools string
-                                    tools_str = ""
                                     if used_tools:
                                         tool_parts: list[str] = []
                                         for t in used_tools:
