@@ -13,6 +13,7 @@ import pytest
 
 from gwebui.tools import (
     adjust_color_nuance,
+    delete_session,
     get_model_name,
     get_project_hash,
     get_session_dir,
@@ -227,3 +228,21 @@ def test_load_session_from_disk(tmp_path):
 
         # Test non-existent
         assert load_session_from_disk("nonexistent") == []
+
+
+def test_delete_session(tmp_path):
+    session_dir = tmp_path / "chats"
+    session_dir.mkdir()
+
+    session_id = "12345678-9abc-def0-1234-56789abcdef0"
+    short_id = "12345678"
+    f = session_dir / f"session-20230101-{short_id}.json"
+    f.write_text(f'{{"sessionId": "{session_id}"}}', encoding="utf-8")
+
+    with patch("gwebui.tools.get_session_dir", return_value=session_dir):
+        # Delete existing
+        assert delete_session(session_id) is True
+        assert not f.exists()
+
+        # Delete non-existent
+        assert delete_session("nonexistent") is False

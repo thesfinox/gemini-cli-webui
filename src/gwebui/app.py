@@ -103,7 +103,6 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "git_reset",
     "git_show",
     "git_status",
-    "git_status",
     "glob",
     "google_web_search",
     "list_allowed_directories",
@@ -116,7 +115,7 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "move_file",
     "open_nodes",
     "push_files",
-    "python_sandbox__run_python_code",
+    "python-sandbox__run_python_code",
     "query_docs",
     "read_file",
     "read_graph",
@@ -126,7 +125,7 @@ ALLOWED_TOOLS: Final[list[str]] = [
     "read_text_file",
     "replace",
     "resolve-library-id",
-    "run_python_code",  # From symbolic-math
+    "run_python_code",
     "save_memory",
     "search_code",
     "search_file_content",
@@ -240,12 +239,43 @@ def main() -> None:
                 if "history_select_key" not in st.session_state:
                     st.session_state.history_select_key = 0
 
-                selected_title: str = st.selectbox(
-                    "Select a conversation",
-                    options=history_titles,
-                    index=current_index,
-                    key=f"history_selector_{st.session_state.history_select_key}",
+                hist_cols: list[DeltaGenerator] = st.columns(
+                    [0.85, 0.15], gap="small", vertical_alignment="center"
                 )
+
+                with hist_cols[0]:
+                    selected_title: str = st.selectbox(
+                        "Select a conversation",
+                        options=history_titles,
+                        index=current_index,
+                        key=f"history_selector_{st.session_state.history_select_key}",
+                        label_visibility="collapsed",
+                    )
+
+                with hist_cols[1]:
+                    if (
+                        selected_title != "Select a conversation..."
+                        and st.button(
+                            "🗑️", key="del_session", help="Delete session"
+                        )
+                    ):
+                        selected_session: dict[str, Any] | None = next(
+                            (
+                                s
+                                for s in available_sessions
+                                if s["title"] == selected_title
+                            ),
+                            None,
+                        )
+                        if selected_session:
+                            if tools.delete_session(
+                                selected_session["session_id"]
+                            ):
+                                st.toast("Session deleted.")
+                                st.session_state.session_id = None
+                                st.session_state.messages = []
+                                st.session_state.history_select_key += 1
+                                st.rerun()
 
                 # Only switch if a valid conversation is selected and it's different from current
                 if selected_title != "Select a conversation...":
@@ -272,16 +302,6 @@ def main() -> None:
                             )
                         )
                         st.rerun()
-
-                # Delete option... actually gemini-cli doesn't support deleting sessions via CLI args?
-                # The task was to READ sessions. Deleting might require deleting the file.
-                # Assuming safe to delete file if we want to support it?
-                # For now let's DISABLE deletion as it wasn't requested explicitly and might desync/break things if not careful.
-                # Or we can just delete the file.
-                # Let's keep it simple and omit deletion for now to avoid complexity, or check if user requested "strong refactor to make sure ... read every time".
-                # User didn't ask for deletion. I'll comment it out or remove.
-                if selected_title != "Select a conversation...":
-                    st.caption("Session deletion is managed via gemini-cli.")
 
         st.divider()
 
@@ -665,88 +685,146 @@ def main() -> None:
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        # Construct command
+        cmd = tools.build_gemini_command(
+            prompt,
+            upload_dir,
+            st.session_state.session_id,
+            ALLOWED_TOOLS,
+            stream=True,
+        )
+
         with st.chat_message("assistant"):
-            # Construct command
-            cmd = tools.build_gemini_command(
-                prompt,
-                upload_dir,
-                st.session_state.session_id,
-                ALLOWED_TOOLS,
-            )
+            message_placeholder = st.empty()
+            full_response = ""
+            # Temporary variables to hold session state updates
+            new_session_id = None
 
-            with st.spinner("Gemini is thinking..."):
-                # Run the CLI command
-                returncode, stdout, stderr = tools.run_gemini_cli(cmd)
+            # Status container for "Thinking..." spinner during tool use
+            status_container = None
 
-                if returncode != 0:
-                    st.error("Error executing Gemini CLI")
-                    st.code(stderr)
-                    st.session_state["_chat_prompt_last_processed"] = prompt
-                else:
-                    # Attempt to extract JSON from stdout
-                    data: dict[str, Any] | None = tools.process_gemini_response(
-                        stdout
-                    )
-                    if data:
-                        response_text: str = data.get("response", "")
-                        new_session_id: str | None = data.get("session_id")
-                        model_name, used_tools = tools.get_model_name(data)
+            # Stream Output
+            for event in tools.run_gemini_cli_stream(cmd):
+                event_type = event.get("type")
 
-                        # Update session ID if provided
-                        if new_session_id is not None:
-                            st.session_state.session_id = str(new_session_id)
+                if event_type == "init":
+                    new_session_id = event.get("session_id")
+                    if new_session_id:
+                        st.session_state.session_id = str(new_session_id)
 
-                        # Render response
-                        st.markdown(response_text)
-                        tools_str: str = ""
-                        if model_name:
-                            # Format tools string
-                            if used_tools:
-                                tool_parts: list[str] = []
-                                for t in used_tools:
-                                    name: str = t["name"]
-                                    success_rate: float = 0
-                                    if t["count"] > 0:
-                                        success_rate = t["success"] / t["count"]
+                elif event_type == "tool_use":
+                    # Initialize status container if not already active
+                    if status_container is None:
+                        status_container = st.status(
+                            "Thinking...", expanded=True
+                        )
 
-                                    # Determine color based on success rate
-                                    color = "#d97706"  # orange-mix
-                                    if success_rate == 1.0:
-                                        color = "#059669"  # green-ok
-                                    elif success_rate == 0.0:
-                                        color = "#dc2626"  # red-fail
+                    tool_name = event.get("tool_name", "Unknown Tool")
+                    status_container.markdown(f"**Using tool:** `{tool_name}`")
 
-                                    tool_parts.append(
-                                        f"<span style='color: {color}'>"
-                                        f"{name}</span>"
-                                    )
-                                tools_str = f" (tools: {', '.join(tool_parts)})"
+                elif event_type == "tool_result":
+                    # We can log the result summary here if desired
+                    pass
+
+                elif event_type == "message":
+                    # Check if we need to close the status container
+                    if status_container:
+                        status_container.update(
+                            label="Finished thinking",
+                            state="complete",
+                            expanded=False,
+                        )
+                        status_container = None
+
+                    # Append content to full response
+                    content = event.get("content", "")
+                    role = event.get("role")
+                    # Only display assistant content in the stream
+                    if role == "assistant" or role is None:
+                        full_response += content
+                        message_placeholder.markdown(full_response + "▌")
+
+                elif event_type == "error":
+                    st.error(f"Error from Gemini: {event.get('content')}")
+
+            # Ensure status is closed if loop finishes without message content (edge case)
+            if status_container:
+                status_container.update(
+                    label="Finished thinking", state="complete", expanded=False
+                )
+
+            # Final render without cursor
+            message_placeholder.markdown(full_response)
+
+            # Post-processing: Metadata and Session History
+            # Load the session from disk to get accurate model info and tools
+            if st.session_state.session_id:
+                # Reruns load_session_from_disk which parses the file
+                messages = tools.load_session_from_disk(
+                    st.session_state.session_id
+                )
+                st.session_state.messages = messages
+
+            # Check for tool usage / detailed model info by reading the file RAW
+            # This is necessary because load_session_from_disk returns a simplified list.
+            if st.session_state.session_id:
+                session_dir = tools.get_session_dir()
+                # We need to find the specific file.
+                # Re-use logic from load_session_from_disk to find the file
+                short_id = st.session_state.session_id[:8]
+                files = list(session_dir.glob(f"session-*-{short_id}.json"))
+                if files:
+                    # Use the first match (most likely correct)
+                    try:
+                        fw = files[0]
+                        content_json = tools.json.loads(
+                            fw.read_text(encoding="utf-8")
+                        )
+
+                        # Get model from the last message in the file (more reliable than stream init)
+                        raw_msgs = content_json.get("messages", [])
+                        last_raw_msg = raw_msgs[-1] if raw_msgs else {}
+
+                        # 1. Extract Tool Usage
+                        tool_calls = last_raw_msg.get("toolCalls", [])
+                        if tool_calls:
+                            tool_badges = []
+                            for tool in tool_calls:
+                                name = tool.get("name", "Unknown")
+                                status = tool.get("status", "unknown")
+
+                                # Style based on status
+                                if status == "success":
+                                    color = "green"
+                                    icon = "✅"
+                                else:
+                                    color = "red"
+                                    icon = "❌"
+
+                                # Create a pill/badge
+                                badge = f"<span style='background-color: rgba(128, 128, 128, 0.2); border: 1px solid {color}; border-radius: 12px; padding: 2px 8px; font-size: 0.8em; margin-right: 5px;'>{icon} {name}</span>"
+                                tool_badges.append(badge)
 
                             st.markdown(
-                                f"<div style='text-align: right; "
-                                f"color: #888; font-size: 0.8em;'>"
-                                f"{model_name}{tools_str}</div>",
+                                f"<div style='margin-top: 10px; margin-bottom: 5px;'>{''.join(tool_badges)}</div>",
                                 unsafe_allow_html=True,
                             )
 
-                        st.session_state.messages = []
-                        if st.session_state.session_id:
-                            st.session_state.messages = (
-                                tools.load_session_from_disk(
-                                    st.session_state.session_id
-                                )
+                        # 2. Extract Model Name
+                        found_model = last_raw_msg.get("model")
+                        if found_model:
+                            st.markdown(
+                                f"<div style='text-align: right; "
+                                f"color: #888; font-size: 0.8em;'>"
+                                f"{found_model}</div>",
+                                unsafe_allow_html=True,
                             )
-                        # Rerun to update the sidebar with the new session info
-                        st.session_state["_chat_prompt_last_processed"] = prompt
-                        st.rerun()
-                    else:
-                        st.error(
-                            "Could not find valid JSON in CLI output."
-                            "Or failed to parse JSON."
-                        )
-                        st.text("Raw Output:")
-                        st.code(stdout)
-                        st.session_state["_chat_prompt_last_processed"] = prompt
+
+                    except Exception:
+                        pass
+
+            st.session_state["_chat_prompt_last_processed"] = prompt
+            st.rerun()
 
 
 if __name__ == "__main__":

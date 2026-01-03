@@ -450,3 +450,37 @@ def test_image_resize_upload(
         assert max(saved_img.size) <= 512
         assert saved_img.width == 512
         assert saved_img.height == 512
+
+
+def test_session_deletion(app_path: Path, temp_cwd: Path) -> None:
+    """Test deleting a session via the UI."""
+    session_id = "sid-123"
+    available_sessions = [
+        {
+            "session_id": session_id,
+            "title": "Session to Delete",
+            "timestamp": "2023-01-01",
+        }
+    ]
+
+    at: AppTest = AppTest.from_file(str(app_path))
+
+    with (
+        patch(
+            "gwebui.tools.list_available_sessions",
+            return_value=available_sessions,
+        ),
+        patch("gwebui.tools.delete_session", return_value=True) as mock_delete,
+    ):
+        at.run()
+
+        # Simulate selecting the session and clicking delete
+        # Note: In Streamlit AppTest, we need to find the button in the popover
+        at.sidebar.selectbox(key="history_selector_0").select(
+            "Session to Delete"
+        ).run()
+        at.sidebar.button(key="del_session").click().run()
+
+    mock_delete.assert_called_once_with(session_id)
+    assert at.session_state.session_id is None
+    assert at.session_state.messages == []

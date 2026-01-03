@@ -885,6 +885,7 @@ def build_gemini_command(
     upload_dir: Path,
     session_id: str | None,
     allowed_tools: list[str],
+    stream: bool = False,
 ) -> list[str]:
     """
     Construct the Gemini CLI command.
@@ -899,17 +900,20 @@ def build_gemini_command(
         The active session ID, if any.
     allowed_tools : list[str]
         List of allowed MCP tools.
+    stream : bool, optional
+        Whether to use streaming JSON output, by default False.
 
     Returns
     -------
     list[str]
         The command list for subprocess.
     """
+    output_format = "stream-json" if stream else "json"
     cmd: list[str] = [
         "gemini",
         prompt,
         "-o",
-        "json",
+        output_format,
         "--include-directories",
         str(upload_dir.absolute()),
         "--allowed-tools",
@@ -969,3 +973,93 @@ def process_gemini_response(
     except (json.JSONDecodeError, Exception):
         pass
     return None
+
+
+def run_gemini_cli_stream(cmd: list[str]) -> Any:
+    """
+    Execute the Gemini CLI command and yield streaming events.
+
+    Parameters
+    ----------
+    cmd : list[str]
+        The command to execute (should include -o stream-json).
+
+    Yields
+    ------
+    dict[str, Any]
+        Parsed JSON events from the stream.
+    """
+    try:
+        # Use Popen to stream stdout
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            encoding="utf-8",
+        )
+
+        if process.stdout:
+            for line in process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    data = json.loads(line)
+                    yield data
+                except json.JSONDecodeError:
+                    # Ignore non-JSON lines (logs, etc.)
+                    continue
+
+        # Check return code
+        return_code = process.wait()
+        if return_code != 0:
+            stderr = process.stderr.read() if process.stderr else ""
+            yield {"type": "error", "content": stderr, "code": return_code}
+
+    except Exception as e:
+        yield {"type": "error", "content": str(e)}
+
+
+def delete_session(session_id: str) -> bool:
+    """
+    Delete a session file from disk.
+
+    Parameters
+    ----------
+    session_id : str
+        The full UUID of the session.
+
+    Returns
+    -------
+    bool
+        True if the file was successfully deleted, False otherwise.
+    """
+    session_dir: Path = get_session_dir()
+    short_id: str = session_id[:8]
+    files: list[Path] = list(session_dir.glob(f"session-*-{short_id}.json"))
+
+    if not files:
+        return False
+
+    # Try to find the exact match
+    target_file: Path | None = None
+    for f in files:
+        try:
+            content = f.read_text(encoding="utf-8")
+            if session_id in content:
+                target_file = f
+                break
+        except Exception:
+            continue
+
+    if not target_file:
+        target_file = files[0]
+
+    try:
+        target_file.unlink()
+        return True
+    except Exception:
+        return False
