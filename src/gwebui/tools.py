@@ -792,6 +792,8 @@ def load_session_from_disk(session_id: str) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = data.get("messages", [])
 
         formatted_messages: list[dict[str, Any]] = []
+        pending_tool_calls: list[dict[str, Any]] = []
+
         for m in messages:
             msg_type: str = m.get("type", "unknown")
             content: str = m.get("content", "")
@@ -803,8 +805,6 @@ def load_session_from_disk(session_id: str) -> list[dict[str, Any]]:
             elif msg_type == "gemini":
                 role = "assistant"
             elif msg_type == "info":
-                # Info messages (e.g. model switch)
-                # We can display them as system/assistant blocks
                 content = f"ℹ️ *{content}*"
                 role = "assistant"
             elif msg_type == "error":
@@ -814,20 +814,76 @@ def load_session_from_disk(session_id: str) -> list[dict[str, Any]]:
             # Extract model info if present
             model: str | None = m.get("model")
 
-            # Extract tools if present?
-            # gemini-cli stores tool usage in specific ways?
-            # Research showed 'thoughts' array within message.
-            # We can try to format that if needed, but existing logic uses 'model' field string in session state.
-            # We might need to reconstruct the `model` string (e.g. "gemini-1.5-pro (tools: ...)")
-            # from the message data if we want it preserved.
-            # However, `load_session` is mostly for restoring history.
-            # The simple `model` field might be enough if `gemini-cli` saved it there?
-            # The research JSON didn't show "model" string with tool info in the message root,
-            # but `gemini-cli` output usually puts it in `model`.
+            # Extract tool calls from this message
+            current_tool_calls = m.get("toolCalls", [])
 
-            formatted_messages.append(
-                {"role": role, "content": content, "model": model}
-            )
+            # If this is a visible assistant message
+            if role == "assistant" and content.strip():
+                # Combine pending tools with current tools
+                all_tools = pending_tool_calls + current_tool_calls
+
+                # Calculate stats
+                tool_stats = []
+                if all_tools:
+                    stats_map: dict[str, dict[str, int]] = {}
+                    for t in all_tools:
+                        name = t.get("name", "Unknown")
+                        status = t.get("status", "unknown")
+                        if name not in stats_map:
+                            stats_map[name] = {
+                                "success": 0,
+                                "failure": 0,
+                                "total": 0,
+                            }
+                        stats_map[name]["total"] += 1
+                        if status == "success":
+                            stats_map[name]["success"] += 1
+                        else:
+                            stats_map[name]["failure"] += 1
+
+                    for k, v in stats_map.items():
+                        # Determine status color/category
+                        # 100% success -> green, 0% -> red, mixed -> orange
+                        pct = v["success"] / v["total"] if v["total"] > 0 else 0
+                        status_color = (
+                            "green"
+                            if pct == 1.0
+                            else ("red" if pct == 0 else "orange")
+                        )
+
+                        tool_stats.append(
+                            {
+                                "name": k,
+                                "color": status_color,
+                                "count": v["total"],
+                            }
+                        )
+
+                formatted_messages.append(
+                    {
+                        "role": role,
+                        "content": content,
+                        "model": model,
+                        "tools": tool_stats,
+                    }
+                )
+                # Reset pending tools
+                pending_tool_calls = []
+
+            elif role == "assistant" and not content.strip():
+                # Empty assistant message, likely just tool calls.
+                # Accumulate tools and skip adding to history.
+                pending_tool_calls.extend(current_tool_calls)
+
+            else:
+                # User or other messages.
+                # Let's clear pending tools on user message to avoid attributing old tools to new answers.
+                if role == "user":
+                    pending_tool_calls = []
+
+                formatted_messages.append(
+                    {"role": role, "content": content, "model": model}
+                )
 
         return formatted_messages
 

@@ -10,7 +10,9 @@ Authors
 """
 
 from unittest.mock import MagicMock
+
 from pytest_mock import MockerFixture
+
 import gwebui
 from gwebui.main import cli
 
@@ -29,4 +31,6 @@ def test_main_cli(mocker: MockerFixture) -> None:
 
 def test_version_exists():
     assert hasattr(gwebui, "__version__")
-    assert gwebui.__version__ == "0.2.0"
+    assert gwebui.__version__ == "0.2.1"
+    assert hasattr(gwebui, "__version__")
+    assert gwebui.__version__ == "0.2.1"

@@ -605,6 +605,38 @@ def main() -> None:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+
+            # Render tool usage pills if present
+            if "tools" in message and message["tools"]:
+                tool_badges = []
+                for tool in message["tools"]:
+                    name = tool["name"]
+                    color = tool.get("color", "gray")
+                    icon = (
+                        "✅"
+                        if color == "green"
+                        else ("❌" if color == "red" else "⚠️")
+                    )
+                    count_str = (
+                        f" ({tool['count']})" if tool["count"] > 1 else ""
+                    )
+
+                    # Create a pill/badge
+                    badge = (
+                        f"<span style='background-color: rgba(128, 128, 128, 0.2); "
+                        f"border: 1px solid {color}; border-radius: 12px; "
+                        f"padding: 2px 8px; font-size: 0.8em; margin-right: 5px; "
+                        f"white-space: nowrap; display: inline-block; margin-bottom: 5px;'>"
+                        f"{icon} {name}{count_str}</span>"
+                    )
+                    tool_badges.append(badge)
+
+                st.markdown(
+                    f"<div style='margin-top: 10px; margin-bottom: 5px; line-height: 1.5;'>"
+                    f"{''.join(tool_badges)}</div>",
+                    unsafe_allow_html=True,
+                )
+
             if message["role"] == "assistant" and "model" in message:
                 st.markdown(
                     f"<div style='text-align: right; color: #888; "
@@ -758,70 +790,13 @@ def main() -> None:
 
             # Post-processing: Metadata and Session History
             # Load the session from disk to get accurate model info and tools
+            # The simplified logic in tools.load_session_from_disk now handles
+            # filtering empty messages and aggregating tool usage.
             if st.session_state.session_id:
-                # Reruns load_session_from_disk which parses the file
                 messages = tools.load_session_from_disk(
                     st.session_state.session_id
                 )
                 st.session_state.messages = messages
-
-            # Check for tool usage / detailed model info by reading the file RAW
-            # This is necessary because load_session_from_disk returns a simplified list.
-            if st.session_state.session_id:
-                session_dir = tools.get_session_dir()
-                # We need to find the specific file.
-                # Re-use logic from load_session_from_disk to find the file
-                short_id = st.session_state.session_id[:8]
-                files = list(session_dir.glob(f"session-*-{short_id}.json"))
-                if files:
-                    # Use the first match (most likely correct)
-                    try:
-                        fw = files[0]
-                        content_json = tools.json.loads(
-                            fw.read_text(encoding="utf-8")
-                        )
-
-                        # Get model from the last message in the file (more reliable than stream init)
-                        raw_msgs = content_json.get("messages", [])
-                        last_raw_msg = raw_msgs[-1] if raw_msgs else {}
-
-                        # 1. Extract Tool Usage
-                        tool_calls = last_raw_msg.get("toolCalls", [])
-                        if tool_calls:
-                            tool_badges = []
-                            for tool in tool_calls:
-                                name = tool.get("name", "Unknown")
-                                status = tool.get("status", "unknown")
-
-                                # Style based on status
-                                if status == "success":
-                                    color = "green"
-                                    icon = "✅"
-                                else:
-                                    color = "red"
-                                    icon = "❌"
-
-                                # Create a pill/badge
-                                badge = f"<span style='background-color: rgba(128, 128, 128, 0.2); border: 1px solid {color}; border-radius: 12px; padding: 2px 8px; font-size: 0.8em; margin-right: 5px;'>{icon} {name}</span>"
-                                tool_badges.append(badge)
-
-                            st.markdown(
-                                f"<div style='margin-top: 10px; margin-bottom: 5px;'>{''.join(tool_badges)}</div>",
-                                unsafe_allow_html=True,
-                            )
-
-                        # 2. Extract Model Name
-                        found_model = last_raw_msg.get("model")
-                        if found_model:
-                            st.markdown(
-                                f"<div style='text-align: right; "
-                                f"color: #888; font-size: 0.8em;'>"
-                                f"{found_model}</div>",
-                                unsafe_allow_html=True,
-                            )
-
-                    except Exception:
-                        pass
 
             st.session_state["_chat_prompt_last_processed"] = prompt
             st.rerun()
