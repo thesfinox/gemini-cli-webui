@@ -74,3 +74,21 @@ def temp_cwd(tmp_path: Path) -> Generator[Path, None, None]:
 def app_path() -> Path:
     """Fixture to return the path to app.py."""
     return Path(__file__).parent.parent / "src" / "gwebui" / "app.py"
+
+
+@pytest.fixture
+def mock_popen(mocker: Any) -> MagicMock:
+    """Fixture to mock subprocess.Popen for streaming."""
+    mock_popen_obj = MagicMock()
+    mock_process = MagicMock()
+    mock_popen_obj.return_value = mock_process
+
+    # Default behavior: successful exit, empty stdout
+    mock_process.returncode = 0
+    mock_process.poll.return_value = 0
+    mock_process.wait.return_value = 0
+    mock_process.stdout = []
+    mock_process.stderr = None
+
+    mocker.patch("subprocess.Popen", mock_popen_obj)
+    return mock_popen_obj

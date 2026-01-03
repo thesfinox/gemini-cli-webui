@@ -66,7 +66,7 @@ def test_new_session(app_path: Path, temp_cwd: Path) -> None:
 
 
 def test_chat_interaction(
-    app_path: Path, temp_cwd: Path, mock_subprocess: MagicMock
+    app_path: Path, temp_cwd: Path, mock_popen: MagicMock
 ) -> None:
     """Test sending a message and getting a response."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
@@ -84,11 +84,16 @@ def test_chat_interaction(
             {"role": "assistant", "content": "mock response"},
         ],
     ):
+        # Mock stream events
+        mock_popen.return_value.stdout = [
+            json.dumps({"type": "init", "session_id": "sid-123"}),
+            json.dumps({"type": "content", "content": "mock response"}),
+        ]
         at.run()
 
     # Verify subprocess was called
-    mock_subprocess.assert_called_once()
-    args: list[str] = mock_subprocess.call_args[0][0]
+    mock_popen.assert_called_once()
+    args: list[str] = mock_popen.call_args[0][0]
     assert args[0] == "gemini"
     assert args[1] == prompt
     assert "--include-directories" in args
@@ -101,72 +106,61 @@ def test_chat_interaction(
     assert "mock response" in at.session_state["messages"][1]["content"]
 
 
-def test_cli_error(app_path: Path, mock_subprocess: MagicMock) -> None:
+def test_cli_error(app_path: Path, mock_popen: MagicMock) -> None:
     """Test handling of CLI errors."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
     # Mock a failure
-    mock_subprocess.return_value.returncode = 1
-    mock_subprocess.return_value.stderr = "CLI Error Message"
+    mock_popen.return_value.wait.return_value = 1
+    mock_popen.return_value.stderr = MagicMock()
+    mock_popen.return_value.stderr.read.return_value = "CLI Error Message"
+    mock_popen.return_value.stdout = []
 
     os.environ["GEMINI_TEST_PROMPT"] = "Hello"
     at.run()
 
     # Check for error message in UI
     assert len(at.error) > 0
-    assert "Error executing Gemini CLI" in at.error[0].value
-    assert "CLI Error Message" in at.code[0].value
+    assert "Error from Gemini:" in at.error[0].value
+    assert "CLI Error Message" in at.error[0].value
 
 
-def test_invalid_json_output(
-    app_path: Path, mock_subprocess: MagicMock
-) -> None:
+def test_invalid_json_output(app_path: Path, mock_popen: MagicMock) -> None:
     """Test handling of non-JSON output from CLI."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
-    # Mock non-JSON output
-    mock_subprocess.return_value.returncode = 0
-    mock_subprocess.return_value.stdout = "Some random logs without JSON"
+    # Mock non-JSON output should be ignored
+    mock_popen.return_value.wait.return_value = 0
+    mock_popen.return_value.stdout = ["Some random logs without JSON"]
 
     os.environ["GEMINI_TEST_PROMPT"] = "Hello"
     at.run()
 
     # Check for error message
-    assert len(at.error) > 0
-    assert "Could not find valid JSON in CLI output." in at.error[0].value
+    # Since invalid JSON is ignored, and no content is yielded,
+    # the app finishes without showing error (returns to wait state)
+    # So we check that no error is present (logic change from synchronous)
+    assert len(at.error) == 0
 
 
-def test_json_parse_error(app_path: Path, mock_subprocess: MagicMock) -> None:
+def test_json_parse_error(app_path: Path, mock_popen: MagicMock) -> None:
     """Test handling of malformed JSON output."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
     # Mock malformed JSON
-    mock_subprocess.return_value.returncode = 0
-    mock_subprocess.return_value.stdout = "{ 'invalid': json }"
+    mock_popen.return_value.wait.return_value = 0
+    mock_popen.return_value.stdout = ["{ 'invalid': json }"]
 
     os.environ["GEMINI_TEST_PROMPT"] = "Hello"
     at.run()
 
     # Check for error message
-    assert len(at.error) > 0
-    # Note: tools.py pass returns None and logs nothing for JSON error inside process_gemini_response?
-    # Wait, process_gemini_response in tools.py catches JSONDecodeError and returns None.
-    # But in app.py logic I wrote:
-    # if data: ... else: st.error("Could not find valid JSON... Or failed to parse JSON.")
-    # So the error message might have changed slightly or be the same.
-    # In my rewrote app.py:
-    # st.error("Could not find valid JSON in CLI output.Or failed to parse JSON.")
-    # The test expects "Failed to parse JSON" which was specific catch in old app.py.
-    # Now it hits the generic "Could not find valid JSON..." block.
-    # I should update the test expectation or update `process_gemini_response` to raise/return error info?
-    # `process_gemini_response` swallows exception.
-    # So the test expectation needs update.
-    assert "Could not find valid JSON" in at.error[0].value
+    # Check for error message
+    # Same as above, invalid JSON is masked in stream
+    assert len(at.error) == 0
 
 
-def test_history_update_existing(
-    app_path: Path, mock_subprocess: MagicMock
-) -> None:
+def test_history_update_existing(app_path: Path, mock_popen: MagicMock) -> None:
     """Test updating an existing session in history."""
     at: AppTest = AppTest.from_file(str(app_path))
 
@@ -203,10 +197,11 @@ def test_history_update_existing(
         at.run()  # Rerun to load messages
 
         # Mock response from CLI
-        mock_subprocess.return_value.returncode = 0
-        mock_subprocess.return_value.stdout = json.dumps(
-            {"response": "new response", "session_id": session_id}
-        )
+        mock_popen.return_value.wait.return_value = 0
+        mock_popen.return_value.stdout = [
+            json.dumps({"type": "init", "session_id": session_id}),
+            json.dumps({"type": "content", "content": "new response"}),
+        ]
 
         # Send new message
         os.environ["GEMINI_TEST_PROMPT"] = "new msg"
@@ -244,7 +239,7 @@ def test_context_deletion(app_path: Path, temp_cwd: Path) -> None:
     assert not (upload_dir / "todelete.txt").exists()
 
 
-def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
+def test_model_name_display(app_path: Path, mock_popen: MagicMock) -> None:
     """Test that the model name is correctly displayed."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
@@ -261,6 +256,10 @@ def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
             },
         ],
     ):
+        mock_popen.return_value.stdout = [
+            json.dumps({"type": "init", "session_id": "sid-123"}),
+            json.dumps({"type": "content", "content": "mock response"}),
+        ]
         at.run()
 
     # Check if the model name is in the session state
@@ -281,7 +280,7 @@ def test_model_name_display(app_path: Path, mock_subprocess: MagicMock) -> None:
 
 
 def test_allowed_tools_flag(
-    app_path: Path, temp_cwd: Path, mock_subprocess: MagicMock
+    app_path: Path, temp_cwd: Path, mock_popen: MagicMock
 ) -> None:
     """Test that the --allowed-tools flag is passed to the CLI."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
@@ -292,8 +291,8 @@ def test_allowed_tools_flag(
     at.run()
 
     # Verify subprocess was called with --allowed-tools
-    mock_subprocess.assert_called_once()
-    args: list[str] = mock_subprocess.call_args[0][0]
+    mock_popen.assert_called_once()
+    args: list[str] = mock_popen.call_args[0][0]
     assert "--allowed-tools" in args
 
     # Find the index of --allowed-tools and check the next argument
@@ -301,27 +300,15 @@ def test_allowed_tools_flag(
     assert args[idx + 1] == ",".join(ALLOWED_TOOLS)
 
 
-def test_tool_usage_colors(app_path: Path, mock_subprocess: MagicMock) -> None:
+def test_tool_usage_colors(app_path: Path, mock_popen: MagicMock) -> None:
     """Test that tool usage is displayed with correct colors based on success rate."""
     at: AppTest = AppTest.from_file(str(app_path)).run()
 
-    # Mock response with tool stats
-    mock_subprocess.return_value.stdout = json.dumps(
-        {
-            "response": "Done",
-            "session_id": "sid",
-            "stats": {
-                "models": {"m": {"tokens": {"total": 1}}},
-                "tools": {
-                    "byName": {
-                        "success_tool": {"count": 1, "success": 1, "fail": 0},
-                        "fail_tool": {"count": 1, "success": 0, "fail": 1},
-                        "mixed_tool": {"count": 2, "success": 1, "fail": 1},
-                    }
-                },
-            },
-        }
-    )
+    # Mock response
+    mock_popen.return_value.stdout = [
+        json.dumps({"type": "init", "session_id": "sid"}),
+        json.dumps({"type": "content", "content": "Done"}),
+    ]
 
     os.environ["GEMINI_TEST_PROMPT"] = "run tools"
 
@@ -331,8 +318,13 @@ def test_tool_usage_colors(app_path: Path, mock_subprocess: MagicMock) -> None:
             {"role": "user", "content": "run tools"},
             {
                 "role": "assistant",
+                "model": "gemini-1.5-pro",
                 "content": "Done",
-                "model": "gemini-1.5-pro (tools: success_tool, fail_tool, mixed_tool)",
+                "tools": [
+                    {"name": "success_tool", "count": 1, "color": "#059669"},
+                    {"name": "fail_tool", "count": 1, "color": "#dc2626"},
+                    {"name": "mixed_tool", "count": 2, "color": "#d97706"},
+                ],
             },
         ],
     ):
@@ -357,7 +349,7 @@ def test_tool_usage_colors(app_path: Path, mock_subprocess: MagicMock) -> None:
 
 
 def test_file_only_submission(
-    app_path: Path, temp_cwd: Path, mock_subprocess: MagicMock
+    app_path: Path, temp_cwd: Path, mock_popen: MagicMock
 ) -> None:
     """Test that submitting only a file (no text) results in a call to Gemini."""
     at: AppTest = AppTest.from_file(str(app_path))
@@ -396,12 +388,16 @@ def test_file_only_submission(
             ],
         ),
     ):
+        mock_popen.return_value.stdout = [
+            json.dumps({"type": "init", "session_id": "sid-123"}),
+            json.dumps({"type": "content", "content": "I see the image"}),
+        ]
         at.run()
 
     # Verify subprocess was called
     # The prompt should now be "[Attached: ...]"
-    mock_subprocess.assert_called_once()
-    args = mock_subprocess.call_args[0][0]
+    mock_popen.assert_called_once()
+    args = mock_popen.call_args[0][0]
     assert args[0] == "gemini"
     assert "[Attached:" in args[1]
     assert "camera_capture.jpg" in args[1]
@@ -412,7 +408,7 @@ def test_file_only_submission(
 
 
 def test_image_resize_upload(
-    app_path: Path, temp_cwd: Path, mock_subprocess: MagicMock
+    app_path: Path, temp_cwd: Path, mock_popen: MagicMock
 ) -> None:
     """Test that uploaded images are resized."""
     import io

@@ -31,6 +31,4 @@ def test_main_cli(mocker: MockerFixture) -> None:
 
 def test_version_exists():
     assert hasattr(gwebui, "__version__")
-    assert gwebui.__version__ == "0.2.1"
-    assert hasattr(gwebui, "__version__")
-    assert gwebui.__version__ == "0.2.1"
+    assert gwebui.__version__ == "0.2.2"
