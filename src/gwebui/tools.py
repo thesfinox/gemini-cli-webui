@@ -941,6 +941,7 @@ def build_gemini_command(
     upload_dir: Path,
     session_id: str | None,
     allowed_tools: list[str],
+    model: str | None = None,
     stream: bool = False,
 ) -> list[str]:
     """
@@ -956,6 +957,8 @@ def build_gemini_command(
         The active session ID, if any.
     allowed_tools : list[str]
         List of allowed MCP tools.
+    model : str | None, optional
+        The name of the model to use, by default None.
     stream : bool, optional
         Whether to use streaming JSON output, by default False.
 
@@ -975,6 +978,10 @@ def build_gemini_command(
         "--allowed-tools",
         ",".join(allowed_tools),
     ]
+
+    if model:
+        cmd.extend(["--model", model])
+
     if session_id is not None:
         cmd.extend(["--resume", str(session_id)])
     return cmd

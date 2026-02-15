@@ -303,6 +303,24 @@ def main() -> None:
                         )
                         st.rerun()
 
+        # Model Selection
+        model_options: list[str] = [
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "Copilot",
+            "RAG",
+            "Researcher",
+            "SysAdmin",
+            "Agentic workflow",
+            "Discovery",
+        ]
+        selected_model: str = st.selectbox(
+            "Select Model",
+            options=model_options,
+            index=0,
+            key="selected_model",
+        )
+
         st.divider()
 
         # Unified Context List (tree view)
@@ -723,6 +741,7 @@ def main() -> None:
             upload_dir,
             st.session_state.session_id,
             ALLOWED_TOOLS,
+            model=st.session_state.get("selected_model"),
             stream=True,
         )
 
